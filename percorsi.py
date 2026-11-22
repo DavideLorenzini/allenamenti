@@ -6,9 +6,8 @@ Regole per i percorsi:
     entro 300 m, arrivo entro 300 m, distanza entro ±12 % e tracciato medio
     entro 150 m (confronto su 40 punti equidistanti). Il verso conta.
   - Nome manuale: rinomina un'uscita in Garmin Connect iniziando con "#",
-    es. "#Giro Zugna". Tutte le uscite con lo stesso #nome finiscono nello
-    stesso percorso, che prende quel nome; le uscite riconosciute in automatico
-    come uguali si aggiungono.
+    es. "#Giro Zugna". Il percorso riconosciuto che la contiene prende quel nome;
+    due percorsi con uscite rinominate con lo stesso #nome vengono uniti.
   - "#escludi" all'inizio del nome: l'uscita non entra in nessun percorso.
 """
 from __future__ import annotations
@@ -178,58 +177,81 @@ def _nome_manuale(nome: str) -> str | None:
     return s[1:].strip() if s.startswith("#") and len(s) > 1 else None
 
 
-def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list]) -> list[dict]:
+def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict | None = None) -> list[dict]:
+    """
+    1) raggruppa in automatico le uscite con tracciato uguale;
+    2) UNISCE i gruppi che condividono una chiave manuale:
+       - abbinamenti fatti dall'app (abb["assegna"]: id attività -> chiave gruppo, nomi in abb["gruppi"]);
+       - #nome dato all'uscita in Garmin Connect;
+    3) esclude le uscite tolte dall'app (abb["escludi"]) o chiamate "#escludi".
+    Le scelte fatte nell'app hanno la precedenza sul #nome.
+    """
+    abb = abb or {}
+    assegna = {str(k): v for k, v in (abb.get("assegna") or {}).items()}
+    nomi_app = {k: (g or {}).get("nome") for k, g in (abb.get("gruppi") or {}).items()}
+    escludi = {str(x) for x in (abb.get("escludi") or [])}
+
     cand = []
     for a in sorted(attivita, key=lambda x: x["inizio"]):           # dalla più vecchia
+        k_app = assegna.get(str(a["id"]))
         manuale = _nome_manuale(a.get("nome", ""))
-        if manuale and manuale.lower().startswith("escludi"):
+        if not k_app and (str(a["id"]) in escludi or (manuale and manuale.lower().startswith("escludi"))):
             continue
+        if a["sport"] not in FAMIGLIE_PERCORSO and not manuale and not k_app:
+            continue
+        chiave = f"app:{k_app}" if k_app else (f"#:{manuale.casefold()}" if manuale else None)
         pts = tracce.get(str(a["id"]))
-        if a["sport"] not in FAMIGLIE_PERCORSO and not manuale:
-            continue
-        cand.append({**a, "_manuale": manuale, "_firma": _firma(pts) if pts and len(pts) >= 10 else None})
+        cand.append({**a, "_chiave": chiave, "_app": k_app, "_manuale": manuale,
+                     "_firma": _firma(pts) if pts and len(pts) >= 10 else None})
 
-    gruppi: list[dict] = []
-    per_nome: dict[str, dict] = {}
-    # 1) gruppi per nome manuale
+    # 1) gruppi automatici
+    gruppi: list[list[dict]] = []
     for a in cand:
-        if a["_manuale"]:
-            k = a["_manuale"].casefold()
-            g = per_nome.get(k)
-            if not g:
-                g = per_nome[k] = {"nome": a["_manuale"], "manuale": True, "membri": [], "rif": None}
-                gruppi.append(g)
-            g["nome"] = a["_manuale"]                              # vince la grafia più recente
-            g["membri"].append(a)
-            if g["rif"] is None and a["_firma"]:
-                g["rif"] = a
-    # 2) riconoscimento automatico per le altre
-    for a in cand:
-        if a["_manuale"] or not a["_firma"]:
-            continue
-        for g in gruppi:
-            if g["rif"] is not None and _uguali(a, g["rif"]):
-                g["membri"].append(a)
-                break
+        if a["_firma"]:
+            for g in gruppi:
+                if g[0]["_firma"] and _uguali(a, g[0]):
+                    g.append(a)
+                    break
+            else:
+                gruppi.append([a])
         else:
-            gruppi.append({"nome": None, "manuale": False, "membri": [a], "rif": a})
+            gruppi.append([a])
+
+    # 2) unione per chiave manuale (union-find)
+    padre = list(range(len(gruppi)))
+    def radice(i):
+        while padre[i] != i:
+            padre[i] = padre[padre[i]]
+            i = padre[i]
+        return i
+    primo: dict[str, int] = {}
+    for i, g in enumerate(gruppi):
+        for a in g:
+            if a["_chiave"]:
+                if a["_chiave"] in primo:
+                    padre[radice(i)] = radice(primo[a["_chiave"]])
+                else:
+                    primo[a["_chiave"]] = i
+    uniti: dict[int, list[dict]] = {}
+    for i, g in enumerate(gruppi):
+        uniti.setdefault(radice(i), []).extend(g)
 
     percorsi = []
-    for g in gruppi:
-        if len(g["membri"]) < 2 and not g["manuale"]:
+    for membri in uniti.values():
+        membri.sort(key=lambda x: x["inizio"])
+        chiavi_app = [m["_app"] for m in membri if m["_app"]]
+        nomi_hash = [m["_manuale"] for m in membri if m["_manuale"] and not m["_app"]]
+        if len(membri) < 2 and not chiavi_app and not nomi_hash:
             continue
-        rif = g["rif"] or g["membri"][0]
-        nome = g["nome"]
+        rif = next((m for m in membri if m["_firma"]), membri[0])
+        nome = next((nomi_app.get(k) for k in chiavi_app if nomi_app.get(k)), None) \
+            or (nomi_hash[-1] if nomi_hash else None)                  # vince il #nome più recente
         if not nome:
             km = (rif["dist"] or 0) / 1000
             nome = f"{rif.get('luogo') or 'Percorso'} · {km:.1f} km".replace(".", ",")
         percorsi.append({
-            "id": rif["id"],
-            "nome": nome,
-            "manuale": g["manuale"],
-            "sport": rif["sport"],
-            "rif": rif["id"],
-            "attivita": [m["id"] for m in sorted(g["membri"], key=lambda x: x["inizio"])],
+            "id": rif["id"], "nome": nome, "manuale": bool(chiavi_app or nomi_hash), "sport": rif["sport"],
+            "rif": rif["id"], "attivita": [m["id"] for m in membri],
         })
     percorsi.sort(key=lambda p: (-len(p["attivita"]), p["nome"]))
     return percorsi

@@ -45,6 +45,7 @@ import sonno as snn
 ROOT = Path(__file__).resolve().parent
 OUT_FILE = ROOT / "docs" / "data.enc"
 TRACCE_FILE = ROOT / "docs" / "tracce.enc"
+ABBINAMENTI_FILE = ROOT / "docs" / "abbinamenti.enc"   # scritto dall'app quando modifichi i percorsi
 PBKDF2_ITER = 310_000
 PAGE_SIZE = 100
 MAX_TRACCE_PER_GIRO = 40        # download .FIT per esecuzione: lo storico si completa in più giri
@@ -349,7 +350,8 @@ def main() -> None:
         hrv = sorted({h["data"]: h for h in hrv}.values(), key=lambda h: h["data"])
         tracce = aggiorna_tracce(client, attivita, prec_tracce)
 
-    percorsi = perc.riconosci_percorsi(attivita, tracce["tracce"])
+    abb = leggi_precedente(password, ABBINAMENTI_FILE) or {}
+    percorsi = perc.riconosci_percorsi(attivita, tracce["tracce"], abb)
     con_traccia = set(tracce["tracce"])
     for a in attivita:
         a["gps"] = str(a["id"]) in con_traccia
