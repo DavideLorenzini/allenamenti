@@ -25,6 +25,8 @@ jobs:
       TZ: Europe/Rome
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - uses: actions/setup-python@v5
         with:
@@ -40,12 +42,20 @@ jobs:
         run: python sync.py ${{ inputs.completo && '--completo' || '' }}
 
       - name: Pubblica se ci sono novità
+        # I dati cifrati sostituiscono sempre l'ultimo commit di aggiornamento (amend):
+        # lo storico del repository non cresce a ogni giro.
         run: |
-          if git diff --quiet -- docs/data.enc && [ -z "$(git status --porcelain docs/data.enc)" ]; then
+          git add docs/data.enc docs/tracce.enc 2>/dev/null || git add docs/data.enc
+          if git diff --cached --quiet; then
             echo "Nessuna modifica."; exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/data.enc
-          git commit -m "Aggiornamento dati $(date +'%Y-%m-%d %H:%M')"
-          git push
+          MSG="Aggiornamento dati $(date +'%Y-%m-%d %H:%M')"
+          if [ "$(git log -1 --pretty=%an)" = "github-actions[bot]" ]; then
+            git commit --amend -m "$MSG"
+            git push --force-with-lease
+          else
+            git commit -m "$MSG"
+            git push
+          fi
