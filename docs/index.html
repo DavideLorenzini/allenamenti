@@ -14,6 +14,8 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png">
 <script src="chart.umd.min.js"></script>
+<link rel="stylesheet" href="leaflet.css">
+<script src="leaflet.js"></script>
 <style>
 :root {
   color-scheme: light;
@@ -91,6 +93,56 @@ header { position: sticky; top: 0; z-index: 5; background: var(--page);
 .att .t { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
 .chartbox .vuoto { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+/* Navigazione inferiore */
+body { padding-bottom: calc(env(safe-area-inset-bottom) + 76px); }
+nav.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--page);
+  border-top: 1px solid var(--grid); display: flex; justify-content: center; gap: 8px;
+  padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px); }
+nav.tabbar button { flex: 0 1 160px; border: 1px solid var(--grid); background: var(--surface); border-radius: 12px;
+  padding: 10px; font-weight: 600; color: var(--ink2); }
+nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--ink); }
+.clic { cursor: pointer; }
+.att.clic:active, .route:active { opacity: .6; }
+.att .gps { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 6px; }
+.route { display: grid; grid-template-columns: 12px 1fr; gap: 2px 10px; padding: 12px 0; border-top: 1px solid var(--grid); cursor: pointer; }
+.route:first-child { border-top: 0; }
+.route .dot { margin-top: 6px; }
+.route .n { font-weight: 600; }
+.route .m { color: var(--ink2); font-size: 13px; grid-column: 2; font-variant-numeric: tabular-nums; }
+.nota { color: var(--ink2); font-size: 13px; margin: 0; }
+.nota code { background: var(--grid); padding: 1px 5px; border-radius: 5px; }
+/* Schede di dettaglio */
+#sheet { position: fixed; inset: 0; z-index: 30; background: var(--page); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 24px); }
+#sheet .bar { position: sticky; top: 0; z-index: 1000; background: var(--page); border-bottom: 1px solid var(--grid); padding: 10px 0; }
+#sheet .bar .wrap { display: flex; align-items: center; gap: 10px; }
+#sheet h1 { font-size: 18px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mappa { height: 280px; border-radius: 14px; overflow: hidden; border: 1px solid var(--ring); margin-top: 12px; background: var(--grid); position: relative; z-index: 0; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.stats div div { background: none; border: 0; padding: 0; }
+.stats > div { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 8px 10px; }
+.stats .l { color: var(--ink2); font-size: 12px; }
+.stats .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.rip { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 8px; border-top: 1px solid var(--grid); cursor: pointer; border-radius: 10px; }
+.rip:first-child { border-top: 0; }
+.rip[aria-selected=true] { background: var(--grid); }
+.rip .d { font-weight: 600; }
+.rip .t { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.rip .m { color: var(--ink2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.rip .x { color: var(--muted); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.link { background: none; border: 0; color: var(--s1); padding: 0; font-weight: 600; text-align: left; cursor: pointer; }
+.leaflet-container { font: 12px system-ui, sans-serif; }
+.notte .big { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.notte .big span { font-size: 16px; font-weight: 500; color: var(--ink2); margin-left: 4px; }
+.notte .riga { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.notte .score { font-size: 15px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+.notte .score b { color: var(--ink); font-size: 22px; }
+.fasi { display: flex; gap: 2px; height: 14px; margin: 14px 0 8px; }
+.fasi i { display: block; height: 100%; }
+.fasi i:first-child { border-radius: 4px 0 0 4px; } .fasi i:last-child { border-radius: 0 4px 4px 0; }
+.fasileg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; font-size: 13px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+.fasileg span { display: flex; align-items: center; gap: 6px; }
+.fasileg b { color: var(--ink); font-weight: 600; margin-left: auto; }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
 footer button { background: none; border: 0; color: var(--ink2); text-decoration: underline; padding: 4px; }
 </style>
@@ -121,7 +173,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     </div>
   </header>
 
-  <main class="wrap">
+  <main class="wrap" id="view-pano">
     <div class="periodo" id="periodolbl"></div>
     <div class="kpis" id="kpis" style="margin-top:12px"></div>
 
@@ -148,15 +200,50 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <div class="rec" id="rec"></div>
     </section>
 
-    <section class="card">
-      <h2>Ultime attività</h2>
-      <div class="list" id="list"></div>
-    </section>
-
     <footer>
       Dati Garmin Connect · <button id="logout">Esci e dimentica password</button>
     </footer>
   </main>
+
+  <main class="wrap hidden" id="view-perc">
+    <section class="card">
+      <h2>Percorsi ricorrenti</h2>
+      <p class="sub" id="percsub"></p>
+      <div class="list" id="perclist"></div>
+    </section>
+    <section class="card">
+      <h2>Dare un nome o abbinare un'uscita</h2>
+      <p class="nota">In Garmin Connect rinomina l'uscita iniziando con <code>#</code>, ad esempio <code>#Giro del Zugna</code>.
+        Le uscite con lo stesso nome finiscono nello stesso percorso, che prende quel nome; quelle riconosciute in automatico si aggiungono.
+        Per togliere un'uscita da un percorso rinominala <code>#escludi</code>. La modifica compare al successivo aggiornamento.</p>
+    </section>
+  </main>
+
+  <main class="wrap hidden" id="view-sonno">
+    <section class="card" id="sn-notte"></section>
+    <div class="kpis" id="sn-kpi" style="margin-top:12px"></div>
+    <section class="card" id="sn1card"><h2>Durata per notte</h2><p class="sub">Ultimi 30 giorni · fasi del sonno, ore</p>
+      <div class="legend" id="sn1l"></div><div class="chartbox"><canvas id="sn1"></canvas></div></section>
+    <section class="card" id="sn2card"><h2>Punteggio del sonno</h2><p class="sub">Ultimi 30 giorni · punteggio Garmin da 0 a 100</p>
+      <div class="chartbox"><canvas id="sn2"></canvas></div></section>
+    <section class="card" id="sn3card"><h2>HRV notturna</h2><p class="sub">Ultimi 30 giorni · millisecondi</p>
+      <div class="legend" id="sn3l"></div><div class="chartbox"><canvas id="sn3"></canvas></div></section>
+    <section class="card hidden" id="sn-diag"></section>
+  </main>
+
+  <nav class="tabbar">
+    <button id="tab-pano" aria-pressed="true">Panoramica</button>
+    <button id="tab-perc" aria-pressed="false">Percorsi</button>
+    <button id="tab-sonno" aria-pressed="false">Sonno</button>
+  </nav>
+</div>
+
+<div id="sheet" class="hidden">
+  <div class="bar"><div class="wrap">
+    <button class="iconbtn" id="sheetclose" aria-label="Indietro">←</button>
+    <h1 id="sheett"></h1>
+  </div></div>
+  <div class="wrap" id="sheetbody"></div>
 </div>
 
 <script>
@@ -216,7 +303,10 @@ const MET = {
 };
 
 /* ======================= Stato ======================= */
-let DATA = null, ACTS = [], stato = { sport: "tutto", periodo: "30g" };
+let DATA = null, ACTS = [], stato = { sport: "tutto", periodo: "30g", vista: "pano" };
+let PERC = [], ACT_BY_ID = new Map(), PERC_DI = new Map(), TRACCE = null, PW = null, MAPPA = null;
+const esc = t => String(t ?? "").replace(/[<>&"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+const nomePulito = a => { const n = (a.nome || "").trim(); return (n.startsWith("#") ? n.slice(1).trim() : n) || SPORT[a.sport].label; };
 const charts = {};
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const $ = id => document.getElementById(id);
@@ -237,8 +327,8 @@ async function decifra(blob, pw) {
   if (blob.gzip) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
   return JSON.parse(new TextDecoder().decode(buf));
 }
-async function carica(pw) {
-  const r = await fetch(`data.enc?t=${Date.now()}`, { cache: "no-store" });
+async function carica(pw, file = "data.enc") {
+  const r = await fetch(`${file}?t=${Date.now()}`, { cache: "no-store" });
   if (!r.ok) throw new Error(r.status === 404 ? "Dati non ancora generati: lancia il workflow su GitHub." : `Errore ${r.status}`);
   const blob = await r.json();
   try { return await decifra(blob, pw); }
@@ -320,7 +410,7 @@ function baseOpts({ yTitle, reverse = false, stacked = false, tooltipFmt }) {
 }
 function disegna(id, cfg) {
   charts[id]?.destroy(); delete charts[id];
-  const box = $(id).parentElement, vuoto = !cfg.data.datasets.some(d => d.data.some(v => v != null && (typeof v === "object" ? v.y : v) > 0));
+  const box = $(id).parentElement, vuoto = !cfg.data.datasets.some(d => d.data.some(v => v != null && (typeof v === "object" ? v.y : v) !== 0));
   box.querySelector(".vuoto")?.remove();
   $(id).classList.toggle("hidden", vuoto);
   if (vuoto) { box.insertAdjacentHTML("beforeend", `<div class="vuoto empty">Nessuna attività in questo intervallo.</div>`); return; }
@@ -395,20 +485,6 @@ function renderTrend() {
       .map(a => ({ x: a.d.getTime(), y: a.dplus / (a.mov / 3600), n: a.nome }));
     cfg = { t: "D+ per ora, per uscita", s: "Ultimi 12 mesi · tempo in movimento, discesa inclusa", pts,
             fmt: v => `${nf0.format(v)} m/h`, col: css("--s2"), label: "D+/h" };
-  } else if (sp === "tutto" && DATA.hrv?.some(h => h.notte)) {
-    const lim90 = new Date(); lim90.setDate(lim90.getDate() - 90);
-    const h = DATA.hrv.filter(x => new Date(x.data) >= lim90);
-    card.classList.remove("hidden");
-    $("c3t").textContent = "HRV notturna"; $("c3s").textContent = "Ultimi 90 giorni, millisecondi";
-    legenda("c3l", [["Notte", css("--s1")], ["Media 7 giorni", css("--s2")]]);
-    const o = baseOpts({ tooltipFmt: v => `${nf0.format(v)} ms` }); o.scales.y.beginAtZero = false;
-    o.scales.x.type = "category";
-    disegna("c3", { type: "line", data: { labels: h.map(x => { const d = new Date(x.data); return `${d.getDate()} ${MESI[d.getMonth()]}`; }),
-      datasets: [
-        { label: "Notte", data: h.map(x => x.notte), borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
-        { label: "Media 7 giorni", data: h.map(x => x.sett), borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
-      ] }, options: o });
-    return;
   }
   if (!cfg || cfg.pts.length < 2) { card.classList.add("hidden"); charts.c3?.destroy(); delete charts.c3; return; }
   card.classList.remove("hidden");
@@ -466,15 +542,338 @@ function renderLista() {
     if (x.sport === "corsa" && x.dist && x.mov) parti.push(`${mmss(x.mov / (x.dist / 1000))} /km`);
     if (x.sport === "scialpinismo" && x.dplus && x.mov) parti.push(`${nf0.format(x.dplus / (x.mov / 3600))} m/h`);
     if (x.fc) parti.push(`♥ ${nf0.format(x.fc)}`);
-    const nome = (x.nome || SPORT[x.sport].label).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
-    return `<div class="att"><i class="dot" style="background:var(${SPORT[x.sport].color})"></i>
-      <div class="n">${nome}</div><div class="t">${fDataBreve.format(x.d)}</div><div class="m">${parti.join(" · ")}</div></div>`;
+    const nome = esc(nomePulito(x));
+    return `<div class="att clic" data-att="${x.id}"><i class="dot" style="background:var(${SPORT[x.sport].color})"></i>
+      <div class="n">${nome}${x.gps ? '<span class="gps">mappa</span>' : ""}</div><div class="t">${fDataBreve.format(x.d)}</div><div class="m">${parti.join(" · ")}</div></div>`;
   }).join("") : `<div class="empty">Nessuna attività.</div>`;
 }
 
 function render() {
   if (!DATA) return;
-  renderChips(); renderKpi(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); renderLista();
+  renderChips();
+  const v = stato.vista, pano = v === "pano";
+  $("periodchips").classList.toggle("hidden", !pano);
+  $("sportchips").classList.toggle("hidden", v === "sonno");
+  ["pano", "perc", "sonno"].forEach(k => {
+    $("view-" + k).classList.toggle("hidden", v !== k);
+    $("tab-" + k).setAttribute("aria-pressed", v === k);
+  });
+  if (pano) { renderKpi(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
+  else if (v === "perc") renderPercorsi();
+  else renderSonno();
+}
+
+/* ======================= Tracce, mappe e percorsi ======================= */
+const tempoMov = a => a.mov || a.durata || null;
+const hms = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+const segno = s => `${s > 0 ? "+" : s < 0 ? "−" : "±"}${mmss(Math.abs(s))}`;
+const fDataRip = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short", year: "2-digit" });
+
+async function tracce() {
+  if (TRACCE) return TRACCE;
+  try { TRACCE = (await carica(PW, "tracce.enc")).tracce || {}; }
+  catch { TRACCE = {}; }
+  return TRACCE;
+}
+
+/* --- scheda a tutto schermo, con pila per il tasto indietro --- */
+const PILA = [];
+function vai(tipo, id) { PILA.push({ tipo, id }); try { history.pushState({ scheda: PILA.length }, ""); } catch {} mostraTop(); }
+function indietro() { PILA.pop(); mostraTop(); }
+function mostraTop() {
+  const t = PILA.at(-1);
+  if (!t) { chiudiMappa(); $("sheet").classList.add("hidden"); document.body.style.overflow = ""; return; }
+  t.tipo === "att" ? apriAttivita(t.id) : apriPercorso(t.id);
+}
+function chiudiMappa() { if (MAPPA) { MAPPA.remove(); MAPPA = null; } }
+function apriSheet(titolo, html) {
+  chiudiMappa();
+  ["s1", "s2", "s3"].forEach(k => { charts[k]?.destroy(); delete charts[k]; });
+  $("sheett").textContent = titolo; $("sheetbody").innerHTML = html;
+  $("sheet").classList.remove("hidden"); $("sheet").scrollTop = 0; document.body.style.overflow = "hidden";
+}
+
+function disegnaMappa(el, linee, sport) {
+  chiudiMappa();
+  const strade = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    { maxZoom: 19, attribution: "© OpenStreetMap" });
+  const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    { maxZoom: 17, subdomains: "abc", attribution: "© OpenStreetMap · © OpenTopoMap (CC-BY-SA)" });
+  MAPPA = L.map(el, { layers: [sport === "corsa" ? strade : topo] });
+  L.control.layers({ "Strade": strade, "Topografica": topo }, null, { collapsed: true }).addTo(MAPPA);
+  let b = null;
+  linee.forEach(({ pts, col, w = 4, op = 1 }) => {
+    const pl = L.polyline(pts.map(p => [p[0], p[1]]), { color: col, weight: w, opacity: op }).addTo(MAPPA);
+    b = b ? b.extend(pl.getBounds()) : pl.getBounds();
+  });
+  const p0 = linee[0].pts, pn = p0.at(-1);
+  L.circleMarker([p0[0][0], p0[0][1]], { radius: 6, color: "#fff", weight: 2, fillColor: css("--s3"), fillOpacity: 1 }).addTo(MAPPA).bindTooltip("Partenza");
+  L.circleMarker([pn[0], pn[1]], { radius: 6, color: "#fff", weight: 2, fillColor: css("--critical"), fillOpacity: 1 }).addTo(MAPPA).bindTooltip("Arrivo");
+  MAPPA.fitBounds(b, { padding: [24, 24] });
+}
+
+function assiDistanza(o, max) {
+  o.scales.x = { type: "linear", min: 0, max, grid: { display: false }, border: { color: css("--axis") },
+    ticks: { color: css("--muted"), maxTicksLimit: 6, font: { size: 11 }, callback: v => `${nf1.format(v)} km` } };
+}
+
+function profilo(id, pts, col) {
+  const dati = pts.filter(p => p[2] != null).map(p => ({ x: p[3] / 1000, y: p[2] }));
+  if (dati.length < 2) return false;
+  const o = baseOpts({ tooltipFmt: v => `${nf0.format(v)} m` });
+  o.scales.y.beginAtZero = false; assiDistanza(o, dati.at(-1).x);
+  o.interaction = { mode: "nearest", intersect: false, axis: "x" };
+  o.plugins.tooltip.callbacks = { title: c => `${nf1.format(c[0].parsed.x)} km`, label: c => `Quota ${nf0.format(c.parsed.y)} m` };
+  disegna(id, { type: "line", data: { datasets: [{ label: "Quota", data: dati, borderColor: col, backgroundColor: col + "26",
+    fill: true, borderWidth: 2, pointRadius: 0, tension: .2 }] }, options: o });
+  return true;
+}
+
+/* --- dettaglio attività --- */
+async function apriAttivita(id) {
+  const a = ACT_BY_ID.get(id); if (!a) return;
+  const p = PERC_DI.get(id), st = [];
+  const add = (l, v) => { if (v) st.push(`<div><div class="l">${l}</div><div class="v">${v}</div></div>`); };
+  add("Distanza", a.dist ? `${kmFmt(a.dist / 1000)} km` : null);
+  add("In movimento", a.mov ? hm(a.mov) : null);
+  add("Totale", a.durata ? hm(a.durata) : null);
+  add("D+", a.dplus ? `${nf0.format(a.dplus)} m` : null);
+  add("D−", a.dminus ? `${nf0.format(a.dminus)} m` : null);
+  if (a.sport === "corsa" && a.dist && a.mov) add("Passo", `${mmss(a.mov / (a.dist / 1000))} /km`);
+  if (a.sport === "scialpinismo" && a.dplus && a.mov) add("D+ per ora", `${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
+  if (a.sport === "sci" && a.vmax) add("Vel. max", `${nf0.format(a.vmax * 3.6)} km/h`);
+  add("FC media", a.fc ? `${nf0.format(a.fc)} bpm` : null);
+  add("FC max", a.fcmax ? `${nf0.format(a.fcmax)} bpm` : null);
+  add("Quota max", a.qmax ? `${nf0.format(a.qmax)} m` : null);
+  let percHtml = "";
+  if (p) {
+    const rip = p.attivita.map(i => ACT_BY_ID.get(i)).filter(Boolean);
+    const ord = rip.filter(tempoMov).sort((x, y) => tempoMov(x) - tempoMov(y));
+    const pos = ord.findIndex(x => x.id === id) + 1, n = rip.findIndex(x => x.id === id) + 1;
+    percHtml = `<section class="card"><h2>Percorso ricorrente</h2>
+      <p class="sub">${n}ª ripetizione su ${rip.length}${pos ? ` · ${pos}° tempo su ${ord.length}` : ""}</p>
+      <button class="link" data-perc="${p.id}">${esc(p.nome)} →</button></section>`;
+  }
+  apriSheet(nomePulito(a), `
+    <p class="sub" style="margin:10px 2px 0">${SPORT[a.sport].label} · ${fDataLunga.format(a.d)}, ${a.inizio.slice(11, 16)}${a.luogo ? " · " + esc(a.luogo) : ""}</p>
+    <div class="stats">${st.join("")}</div>
+    <div class="mappa" id="mappa"></div>
+    <section class="card hidden" id="profcard"><h2>Profilo altimetrico</h2><p class="sub">Quota lungo il percorso</p>
+      <div class="chartbox"><canvas id="s1"></canvas></div></section>
+    ${percHtml}`);
+  const box = $("mappa");
+  if (!a.gps) { box.outerHTML = `<p class="nota" style="margin-top:12px">Traccia non disponibile: attività senza GPS, oppure non ancora scaricata (lo storico delle tracce si completa nel giro di qualche aggiornamento).</p>`; return; }
+  box.innerHTML = `<div class="empty" style="padding:16px">Caricamento traccia…</div>`;
+  const pts = (await tracce())[String(id)];
+  if (PILA.at(-1)?.id !== id || !$("mappa")) return;          // nel frattempo l'utente ha cambiato schermata
+  if (!pts) { $("mappa").outerHTML = `<p class="nota" style="margin-top:12px">Traccia non trovata.</p>`; return; }
+  $("mappa").innerHTML = "";
+  const col = css(SPORT[a.sport].color);
+  disegnaMappa($("mappa"), [{ pts, col }], a.sport);
+  if (profilo("s1", pts, col)) $("profcard").classList.remove("hidden");
+}
+
+/* --- percorsi ricorrenti --- */
+function statPerc(p) {
+  const rip = p.attivita.map(i => ACT_BY_ID.get(i)).filter(Boolean);        // dalla più vecchia
+  const best = rip.filter(tempoMov).reduce((b, x) => !b || tempoMov(x) < tempoMov(b) ? x : b, null);
+  return { rip, best, ult: rip.at(-1), rif: ACT_BY_ID.get(p.rif) || rip[0] };
+}
+
+function renderPercorsi() {
+  const lista = PERC.filter(p => stato.sport === "tutto" || p.sport === stato.sport);
+  const nGps = ACTS.filter(a => a.gps).length;
+  $("percsub").textContent = `${lista.length} ${lista.length === 1 ? "percorso" : "percorsi"} · ${nGps} uscite con traccia GPS`;
+  $("perclist").innerHTML = lista.length ? lista.map(p => {
+    const { rip, best, ult, rif } = statPerc(p);
+    const parti = [`${rip.length} uscite`];
+    if (rif?.dist) parti.push(`${kmFmt(rif.dist / 1000)} km`);
+    if (rif?.dplus) parti.push(`D+ ${nf0.format(rif.dplus)} m`);
+    let t = "";
+    if (best && tempoMov(ult)) {
+      const d = tempoMov(ult) - tempoMov(best);
+      t = `Migliore ${hms(tempoMov(best))} · ultima ${hms(tempoMov(ult))} ${ult.id === best.id ? "(è la migliore)" : `(${segno(d)})`}`;
+    }
+    return `<div class="route" data-perc="${p.id}"><i class="dot" style="background:var(${SPORT[p.sport].color})"></i>
+      <div class="n">${esc(p.nome)}</div><div class="m">${parti.join(" · ")}</div>${t ? `<div class="m">${t}</div>` : ""}</div>`;
+  }).join("") : `<div class="empty">Nessun percorso ricorrente per ora: servono almeno due uscite sullo stesso tracciato con la traccia GPS già scaricata.</div>`;
+}
+
+async function apriPercorso(pid) {
+  const p = PERC.find(x => x.id === pid); if (!p) return;
+  const { rip, best, rif } = statPerc(p);
+  const col = css(SPORT[p.sport].color), colSel = css("--s7");
+  const corsa = p.sport === "corsa" || p.sport === "trekking";
+  const info = [SPORT[p.sport].label, `${rip.length} uscite`];
+  if (rif?.dist) info.push(`${kmFmt(rif.dist / 1000)} km`);
+  if (rif?.dplus) info.push(`D+ ${nf0.format(rif.dplus)} m`);
+  apriSheet(p.nome, `
+    <p class="sub" style="margin:10px 2px 0">${info.join(" · ")}${p.manuale ? "" : " · riconosciuto in automatico"}</p>
+    <div class="mappa" id="mappa"><div class="empty" style="padding:16px">Caricamento traccia…</div></div>
+    <div class="legend" id="mapl" style="margin:8px 2px 0"></div>
+    <section class="card"><h2>Tempo in movimento</h2><p class="sub">Una ripetizione per punto · più in basso = più veloce</p>
+      <div class="chartbox"><canvas id="s1"></canvas></div></section>
+    <section class="card" id="s2card"><h2>${corsa ? "FC media" : "D+ per ora"}</h2>
+      <p class="sub">${corsa ? "Sullo stesso percorso, a parità di tempo una FC più bassa indica una forma migliore" : "Metri di dislivello all'ora, tempo in movimento, discesa inclusa"}</p>
+      <div class="chartbox"><canvas id="s2"></canvas></div></section>
+    <section class="card"><h2>Ripetizioni</h2><p class="sub">Tocca una ripetizione per confrontarla con la migliore</p><div id="riplist"></div></section>
+    <section class="card hidden" id="gapcard"><h2>Distacco dalla migliore</h2>
+      <p class="sub">Lungo il percorso · sopra lo zero = in ritardo, sotto = in vantaggio · tempo trascorso, pause incluse</p>
+      <div class="chartbox"><canvas id="s3"></canvas></div></section>`);
+
+  // grafico tempi
+  const conT = rip.filter(tempoMov);
+  const etich = conT.map(a => fDataRip.format(a.d));
+  const o1 = baseOpts({ tooltipFmt: (v, tick) => hms(v * 60) });
+  o1.scales.y.beginAtZero = false;
+  o1.plugins.tooltip.callbacks = { label: c => `${nomePulito(conT[c.dataIndex])}: ${hms(c.parsed.y * 60)}${conT[c.dataIndex].id === best?.id ? " · migliore" : ""}` };
+  disegna("s1", { type: "line", data: { labels: etich, datasets: [{ label: "Tempo", data: conT.map(a => tempoMov(a) / 60),
+    borderColor: col + "73", borderWidth: 2, tension: .2,
+    pointRadius: conT.map(a => a.id === best?.id ? 6 : 4), pointBackgroundColor: conT.map(a => a.id === best?.id ? col : col + "99"),
+    pointBorderColor: css("--surface"), pointBorderWidth: 1.5 }] }, options: o1 });
+
+  // grafico FC o D+/h
+  const v2 = rip.map(a => corsa ? (a.fc || null) : (a.dplus && a.mov ? a.dplus / (a.mov / 3600) : null));
+  if (v2.filter(v => v != null).length >= 2) {
+    const f2 = corsa ? v => `${nf0.format(v)} bpm` : v => `${nf0.format(v)} m/h`;
+    const o2 = baseOpts({ tooltipFmt: f2 }); o2.scales.y.beginAtZero = false;
+    disegna("s2", { type: "line", data: { labels: rip.map(a => fDataRip.format(a.d)), datasets: [{ label: corsa ? "FC media" : "D+ per ora",
+      data: v2, borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 4, spanGaps: true, tension: .2 }] }, options: o2 });
+  } else $("s2card").classList.add("hidden");
+
+  // elenco ripetizioni (dalla più recente)
+  $("riplist").innerHTML = [...rip].reverse().map(a => {
+    const t = tempoMov(a), d = t && best ? t - tempoMov(best) : null;
+    const extra = [];
+    if (p.sport === "corsa" && a.dist && a.mov) extra.push(`${mmss(a.mov / (a.dist / 1000))} /km`);
+    if (p.sport === "scialpinismo" && a.dplus && a.mov) extra.push(`${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
+    if (a.fc) extra.push(`♥ ${nf0.format(a.fc)}`);
+    return `<div class="rip" data-rip="${a.id}"><div class="d">${fDataBreve.format(a.d)} ${String(a.d.getFullYear()).slice(2)}</div>
+      <div class="t">${t ? hms(t) : "–"}</div>
+      <div class="m">${extra.join(" · ")} · <button class="link" data-att="${a.id}">dettagli</button></div>
+      <div class="x">${a.id === best?.id ? "migliore" : d != null ? segno(d) : ""}</div></div>`;
+  }).join("");
+
+  const T = await tracce();
+  if (PILA.at(-1)?.id !== pid || !$("mappa")) return;
+  const ptsBest = best && T[String(best.id)], ptsRif = T[String(rif?.id)];
+  if (!ptsBest && !ptsRif) { $("mappa").outerHTML = `<p class="nota" style="margin-top:12px">Tracce non ancora scaricate.</p>`; }
+
+  const seleziona = selId => {
+    document.querySelectorAll("#riplist .rip").forEach(r => r.setAttribute("aria-selected", r.dataset.rip == selId));
+    const sel = ACT_BY_ID.get(selId), ptsSel = T[String(selId)];
+    if ($("mappa") && (ptsBest || ptsRif)) {
+      $("mappa").innerHTML = "";
+      const linee = [{ pts: ptsBest || ptsRif, col, w: 5 }];
+      if (ptsSel && selId !== best?.id) linee.push({ pts: ptsSel, col: colSel, w: 3, op: .9 });
+      disegnaMappa($("mappa"), linee, p.sport);
+      legenda("mapl", linee.length > 1 ? [[`Migliore · ${fDataRip.format(best.d)}`, col], [`Selezionata · ${fDataRip.format(sel.d)}`, colSel]]
+        : []);
+    }
+    // distacco
+    if (ptsSel && ptsBest && selId !== best.id) {
+      const tAt = (pts, d) => { const j = pts.findIndex(q => q[3] >= d);
+        if (j === -1) return pts.at(-1)[4]; if (j === 0) return pts[0][4];
+        const a = pts[j - 1], b = pts[j]; return a[4] + (d - a[3]) / ((b[3] - a[3]) || 1) * (b[4] - a[4]); };
+      const totS = ptsSel.at(-1)[3], totB = ptsBest.at(-1)[3], km = (best.dist || totB) / 1000;
+      const dati = Array.from({ length: 61 }, (_, k) => ({ x: km * k / 60, y: tAt(ptsSel, totS * k / 60) - tAt(ptsBest, totB * k / 60) }));
+      const o3 = baseOpts({ tooltipFmt: v => segno(v) }); assiDistanza(o3, km);
+      o3.scales.y.beginAtZero = true; o3.interaction = { mode: "nearest", intersect: false, axis: "x" };
+      o3.plugins.tooltip.filter = () => true;
+      o3.plugins.tooltip.callbacks = { title: c => `${nf1.format(c[0].parsed.x)} km`, label: c => `${segno(c.parsed.y)} ${c.parsed.y > 0 ? "di ritardo" : c.parsed.y < 0 ? "di vantaggio" : ""}` };
+      $("gapcard").classList.remove("hidden");
+      disegna("s3", { type: "line", data: { datasets: [{ label: "Distacco", data: dati, borderColor: colSel, backgroundColor: colSel + "26",
+        fill: "origin", borderWidth: 2, pointRadius: 0, tension: .2 }] }, options: o3 });
+    } else { $("gapcard").classList.add("hidden"); charts.s3?.destroy(); delete charts.s3; }
+  };
+  $("riplist").onclick = e => { const r = e.target.closest(".rip"); if (r && !e.target.closest("[data-att]")) seleziona(Number(r.dataset.rip)); };
+  const ult = rip.at(-1);
+  const ord = rip.filter(tempoMov).sort((x, y) => tempoMov(x) - tempoMov(y));
+  seleziona(ult && best && ult.id !== best.id ? ult.id : (ord[1] || ult).id);
+}
+
+/* ======================= Sonno ======================= */
+const QUALITA = { EXCELLENT: "Ottimo", GOOD: "Buono", FAIR: "Discreto", POOR: "Scarso" };
+const FASI = [["profondo", "Profondo", "--s1"], ["leggero", "Leggero", "--s3"], ["rem", "REM", "--s7"], ["sveglio", "Sveglio", "--s2"]];
+const media = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+// media di orari a cavallo della mezzanotte: minuti contati da mezzogiorno
+const minDaMezzogiorno = t => { const [h, m] = t.split(":").map(Number); const x = h * 60 + m; return x < 720 ? x + 1440 : x; };
+const orarioMedio = arr => { const v = media(arr.filter(Boolean).map(minDaMezzogiorno)); if (v == null) return null;
+  const x = Math.round(v) % 1440; return `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
+const giorniFa = n => { const d = new Date(); d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const dataBreve = iso => { const [y, m, d] = iso.split("-").map(Number); return `${d} ${MESI[m - 1]}`; };
+
+function renderSonno() {
+  const S = DATA.sonno || [], diag = DATA.sonno_diag;
+  const box = $("sn-diag");
+  ["sn1card", "sn2card", "sn3card"].forEach(id => $(id).classList.remove("hidden"));
+  if (!S.length) {
+    $("sn-notte").innerHTML = `<h2>Sonno</h2><div class="empty">Nessun dato del sonno disponibile.</div>`;
+    $("sn-kpi").innerHTML = "";
+    ["sn1card", "sn2card"].forEach(id => $(id).classList.add("hidden"));
+    box.classList.toggle("hidden", !diag);
+    if (diag) box.innerHTML = `<h2>Diagnostica</h2><p class="nota">Garmin ha risposto con campi che lo script non riconosce ancora.
+      Manda a Claude uno screenshot di questo elenco: contiene solo i <b>nomi</b> dei campi, nessun tuo dato.</p>
+      <p class="nota" style="margin-top:8px;word-break:break-all"><code>${diag.map(esc).join("</code> <code>")}</code></p>`;
+  } else box.classList.add("hidden");
+
+  if (S.length) {
+    // ultima notte
+    const u = S.at(-1);
+    const fasi = FASI.filter(([k]) => u[k] != null && u[k] > 0);
+    const totFasi = fasi.reduce((t, [k]) => t + u[k], 0);
+    const q = u.punteggio != null ? `<div class="score">Punteggio <b>${nf0.format(u.punteggio)}</b>${u.qualita ? " · " + (QUALITA[u.qualita] || esc(u.qualita)) : ""}</div>` : "";
+    $("sn-notte").innerHTML = `<h2>Ultima notte</h2><p class="sub">Dati Garmin del ${fDataLunga.format(new Date(u.data + "T12:00"))}</p>
+      <div class="notte"><div class="riga"><div class="big">${Math.floor(Math.round(u.totale / 60) / 60)}<span>h</span> ${String(Math.round(u.totale / 60) % 60).padStart(2, "0")}<span>min</span></div>${q}</div>
+      ${u.inizio && u.fine ? `<div class="nota" style="margin-top:4px">${u.inizio} → ${u.fine}</div>` : ""}
+      ${totFasi ? `<div class="fasi">${fasi.map(([k, , c]) => `<i style="width:${(u[k] / totFasi * 100).toFixed(1)}%;background:var(${c})" title="${k}"></i>`).join("")}</div>
+      <div class="fasileg">${fasi.map(([k, l, c]) => `<span><i class="dot" style="background:var(${c})"></i>${l}<b>${hm(u[k])} · ${nf0.format(u[k] / totFasi * 100)}%</b></span>`).join("")}</div>` : ""}</div>`;
+
+    // 7 giorni e 30 giorni
+    const s7 = S.filter(x => x.data >= giorniFa(6)), s30 = S.filter(x => x.data >= giorniFa(29));
+    const tile = (l, v7, v30, nota) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v7 ?? "–"}</div>
+      <div class="d">ultimi 30 giorni: ${v30 ?? "–"}</div>${nota ? `<div class="d">${nota}</div>` : ""}</div>`;
+    const durMedia = a => { const m = media(a.map(x => x.totale)); return m == null ? null : hm(m); };
+    const scoreMedio = a => { const m = media(a.map(x => x.punteggio).filter(v => v != null)); return m == null ? null : nf0.format(m); };
+    const sotto7 = a => a.filter(x => x.totale < 7 * 3600).length;
+    $("sn-kpi").innerHTML =
+      tile("Sonno medio · 7 giorni", durMedia(s7), durMedia(s30), `${s7.length} notti registrate su 7`) +
+      tile("Punteggio medio · 7 giorni", scoreMedio(s7), scoreMedio(s30)) +
+      tile("A letto · media 7 giorni", orarioMedio(s7.map(x => x.inizio)), orarioMedio(s30.map(x => x.inizio))) +
+      tile("Sveglia · media 7 giorni", orarioMedio(s7.map(x => x.fine)), orarioMedio(s30.map(x => x.fine))) +
+      tile("Notti sotto le 7 ore · 7 giorni", `${sotto7(s7)} su ${s7.length}`, `${sotto7(s30)} su ${s30.length}`);
+
+    // durata per notte, 30 giorni
+    const conFasi = s30.some(x => x.profondo != null || x.leggero != null || x.rem != null);
+    const labels = s30.map(x => dataBreve(x.data));
+    const ds = conFasi
+      ? FASI.slice(0, 3).map(([k, l, c]) => ({ label: l, data: s30.map(x => (x[k] || 0) / 3600), ...barStyle(css(c)) }))
+      : [{ label: "Sonno", data: s30.map(x => x.totale / 3600), ...barStyle(css("--s1")) }];
+    legenda("sn1l", ds.map(d => [d.label, d.backgroundColor]));
+    const o1 = baseOpts({ stacked: true, tooltipFmt: (v, tick) => tick ? `${nf0.format(v)} h` : hm(v * 3600) });
+    o1.plugins.tooltip.callbacks.footer = c => `Totale: ${hm(s30[c[0].dataIndex].totale)}`;
+    disegna("sn1", { type: "bar", data: { labels, datasets: ds }, options: o1 });
+
+    // punteggio
+    if (s30.some(x => x.punteggio != null)) {
+      const o2 = baseOpts({ tooltipFmt: v => nf0.format(v) }); o2.scales.y.beginAtZero = false;
+      disegna("sn2", { type: "line", data: { labels, datasets: [{ label: "Punteggio", data: s30.map(x => x.punteggio),
+        borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 3, spanGaps: true, tension: .25 }] }, options: o2 });
+    } else $("sn2card").classList.add("hidden");
+  }
+
+  // HRV
+  const h = (DATA.hrv || []).filter(x => x.data >= giorniFa(29));
+  if (h.some(x => x.notte)) {
+    legenda("sn3l", [["Notte", css("--s1")], ["Media 7 giorni", css("--s2")]]);
+    const o3 = baseOpts({ tooltipFmt: v => `${nf0.format(v)} ms` }); o3.scales.y.beginAtZero = false;
+    disegna("sn3", { type: "line", data: { labels: h.map(x => dataBreve(x.data)), datasets: [
+      { label: "Notte", data: h.map(x => x.notte), borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
+      { label: "Media 7 giorni", data: h.map(x => x.sett), borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
+    ] }, options: o3 });
+  } else $("sn3card").classList.add("hidden");
 }
 
 /* ======================= Avvio ======================= */
@@ -482,6 +881,10 @@ let ultimoCaricamento = 0;
 async function apri(pw, ricorda) {
   DATA = await carica(pw);
   ACTS = (DATA.attivita || []).map(a => ({ ...a, d: new Date(a.inizio.replace(" ", "T")) }));
+  PERC = DATA.percorsi || [];
+  ACT_BY_ID = new Map(ACTS.map(a => [a.id, a]));
+  PERC_DI = new Map(); PERC.forEach(p => p.attivita.forEach(id => PERC_DI.set(id, p)));
+  TRACCE = null; PW = pw;
   ultimoCaricamento = Date.now();
   if (ricorda) store.set("pw", pw);
   try { sessionStorage.setItem("pw", pw); } catch {}
@@ -498,6 +901,16 @@ $("lockform").addEventListener("submit", async e => {
   finally { $("unlockbtn").disabled = false; $("unlockbtn").textContent = "Sblocca"; }
 });
 $("reload").onclick = async () => { const pw = pwCorrente(); if (pw) { try { await apri(pw, !!store.get("pw")); } catch (e) { alertNoBlock(e.message); } } };
+$("tab-pano").onclick = () => { stato.vista = "pano"; render(); window.scrollTo(0, 0); };
+$("tab-perc").onclick = () => { stato.vista = "perc"; render(); window.scrollTo(0, 0); };
+$("tab-sonno").onclick = () => { stato.vista = "sonno"; render(); window.scrollTo(0, 0); };
+$("sheetclose").onclick = () => { if (history.state?.scheda) history.back(); else indietro(); };
+window.addEventListener("popstate", () => { if (PILA.length) indietro(); });
+document.addEventListener("click", e => {
+  const att = e.target.closest("[data-att]"), perc = e.target.closest("[data-perc]");
+  if (att) { e.stopPropagation(); vai("att", Number(att.dataset.att)); }
+  else if (perc) vai("perc", Number(perc.dataset.perc));
+});
 $("logout").onclick = () => { store.del("pw"); try { sessionStorage.removeItem("pw"); } catch {} location.reload(); };
 function alertNoBlock(msg) { $("agg").textContent = msg; }
 document.addEventListener("visibilitychange", () => {

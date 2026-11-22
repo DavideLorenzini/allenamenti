@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Sincronizza le attività Garmin Connect (Personal API ufficiale) e genera
-docs/data.enc: un file JSON compresso e CIFRATO (AES-256-GCM, chiave derivata
+docs/data.enc (riepiloghi) e docs/tracce.enc (tracce GPS): file JSON compressi e CIFRATI (AES-256-GCM, chiave derivata
 dalla password con PBKDF2-SHA256), letto dalla dashboard sul telefono.
 
 Uso:
-    python sync.py              aggiornamento incrementale (ultimi 30 giorni)
-    python sync.py --completo   riscarica tutto lo storico
+    python sync.py              aggiornamento (elenco attività completo, HRV e tracce GPS incrementali)
+    python sync.py --completo   riscarica anche tutto lo storico HRV
     python sync.py --esplora    (solo sul PC, mai su GitHub) salva in ./esplora
                                 le risposte grezze dell'API per verificarne i campi
 
@@ -39,11 +39,16 @@ from garmin_personal_api import (
     PersonalApiAuthenticator,
 )
 
+import percorsi as perc
+import sonno as snn
+
 ROOT = Path(__file__).resolve().parent
 OUT_FILE = ROOT / "docs" / "data.enc"
+TRACCE_FILE = ROOT / "docs" / "tracce.enc"
 PBKDF2_ITER = 310_000
 PAGE_SIZE = 100
-FINESTRA_INCREMENTALE_GG = 30   # attività riscaricate a ogni giro (cattura modifiche/cancellazioni)
+MAX_TRACCE_PER_GIRO = 40        # download .FIT per esecuzione: lo storico si completa in più giri
+MAX_TENTATIVI_TRACCIA = 3
 STORICO_HRV_GG = 365
 BLOCCO_HRV_GG = 28              # richieste HRV a blocchi di 4 settimane
 PAUSA_S = 0.5                   # pausa tra richieste, per non stressare l'API
@@ -153,6 +158,25 @@ def scarica_hrv(client: GarminPersonalApiClient, dal: date, al: date) -> list[di
     return out
 
 
+def scarica_sonno(client: GarminPersonalApiClient, dal: date, al: date) -> tuple[list[dict], list[str] | None]:
+    """Riepiloghi del sonno. Se il formato non è riconosciuto restituisce anche i nomi dei campi trovati."""
+    out, diag, inizio = [], None, dal
+    while inizio <= al:
+        fine = min(inizio + timedelta(days=BLOCCO_HRV_GG - 1), al)
+        try:
+            resp = client.get_daily_sleep_summaries(inizio, fine)
+        except (HttpError, GarminPersonalApiError) as e:
+            print(f"  Sonno non disponibile ({type(e).__name__} {getattr(e, 'status_code', '')}); sezione saltata.")
+            return out, diag
+        righe = snn.normalizza(resp)
+        if not righe and resp and diag is None:
+            diag = snn.chiavi(resp)
+        out += righe
+        inizio = fine + timedelta(days=1)
+        time.sleep(PAUSA_S)
+    return out, (diag if not out else None)
+
+
 # --------------------------------------------------------------------------- #
 # Cifratura (compatibile WebCrypto: PBKDF2-SHA256 -> AES-256-GCM)
 # --------------------------------------------------------------------------- #
@@ -178,14 +202,66 @@ def decifra(blob: dict, password: str) -> dict:
     return json.loads(chiaro)
 
 
-def leggi_precedente(password: str) -> dict | None:
-    if not OUT_FILE.exists():
+def leggi_precedente(password: str, file: Path = OUT_FILE) -> dict | None:
+    if not file.exists():
         return None
     try:
-        return decifra(json.loads(OUT_FILE.read_text("utf-8")), password)
+        return decifra(json.loads(file.read_text("utf-8")), password)
     except Exception:
-        print("  File precedente non decifrabile (password cambiata?): riscarico tutto.")
+        print(f"  {file.name} non decifrabile (password cambiata?): lo rigenero.")
         return None
+
+
+def scrivi_se_cambiato(file: Path, payload: dict, prec: dict | None, password: str) -> bool:
+    if prec is not None and {k: prec.get(k) for k in payload} == payload:
+        return False
+    file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {**payload, "aggiornato": datetime.now().astimezone().isoformat(timespec="minutes")}
+    file.write_text(json.dumps(cifra(payload, password)), "utf-8")
+    return True
+
+
+def aggiorna_tracce(client: GarminPersonalApiClient, attivita: list[dict], prec: dict | None) -> dict:
+    """Scarica i .FIT mancanti (al massimo MAX_TRACCE_PER_GIRO per esecuzione)."""
+    ids_validi = {str(a["id"]) for a in attivita}
+    tracce = {k: v for k, v in (prec or {}).get("tracce", {}).items() if k in ids_validi}
+    senza = {k: v for k, v in (prec or {}).get("senza", {}).items() if k in ids_validi}
+    mancanti = [a for a in attivita                           # dalla più recente
+                if str(a["id"]) not in tracce and senza.get(str(a["id"]), 0) < MAX_TENTATIVI_TRACCIA]
+    scaricate = 0
+    for a in mancanti:
+        k = str(a["id"])
+        if not perc.da_scaricare(a):
+            senza[k] = 99                                     # attività indoor: niente GPS
+            continue
+        if scaricate >= MAX_TRACCE_PER_GIRO:
+            break
+        try:
+            contenuto = client.download_activity(a["id"])
+            scaricate += 1
+        except HttpError as e:
+            if e.status_code == 429:
+                print("  Limite di richieste Garmin raggiunto: riprendo al prossimo giro.")
+                break
+            senza[k] = senza.get(k, 0) + 1
+            continue
+        except GarminPersonalApiError:
+            senza[k] = senza.get(k, 0) + 1
+            continue
+        try:
+            pts = perc.estrai_traccia(contenuto)
+        except Exception:
+            pts = None
+            senza[k] = senza.get(k, 0) + 1
+        if pts:
+            tracce[k] = pts
+            senza.pop(k, None)
+        elif k not in senza:
+            senza[k] = 99                                     # file senza posizioni GPS
+        time.sleep(PAUSA_S)
+    restano = sum(1 for a in attivita if str(a["id"]) not in tracce and senza.get(str(a["id"]), 0) < MAX_TENTATIVI_TRACCIA)
+    print(f"  Tracce: {scaricate} scaricate in questo giro, {len(tracce)} totali, {restano} ancora da scaricare.")
+    return {"tracce": tracce, "senza": senza}
 
 
 # --------------------------------------------------------------------------- #
@@ -244,36 +320,50 @@ def main() -> None:
         return esplora()
 
     password = env_obbligatoria("DASHBOARD_PASSWORD")
-    prec = None if args.completo else leggi_precedente(password)
+    prec = leggi_precedente(password)
+    prec_tracce = leggi_precedente(password, TRACCE_FILE)       # le tracce già scaricate non si riscaricano mai
     oggi = date.today()
 
     with connetti() as client:
-        if prec:
-            taglio = oggi - timedelta(days=FINESTRA_INCREMENTALE_GG)
-            nuove = scarica_attivita(client, taglio)
-            vecchie = [a for a in prec.get("attivita", []) if a["inizio"][:10] < taglio.isoformat()]
-            attivita = vecchie + nuove
+        # l'elenco attività si riscarica sempre per intero (poche richieste da 100 attività):
+        # così rinomine (#percorso) e cancellazioni vengono sempre recepite
+        attivita = scarica_attivita(client, None)
+        if prec and not args.completo:
             hrv_dal = oggi - timedelta(days=BLOCCO_HRV_GG)
             hrv_nuovo = scarica_hrv(client, hrv_dal, oggi)
             hrv_vecchio = [h for h in prec.get("hrv", []) if h["data"] < hrv_dal.isoformat()]
             hrv = hrv_vecchio + hrv_nuovo if hrv_nuovo else prec.get("hrv", [])
         else:
-            attivita = scarica_attivita(client, None)
             hrv = scarica_hrv(client, oggi - timedelta(days=STORICO_HRV_GG), oggi)
 
-    # deduplica per id, ordina dalla più recente
-    attivita = sorted({a["id"]: a for a in attivita}.values(), key=lambda a: a["inizio"], reverse=True)
-    hrv = sorted({h["data"]: h for h in hrv}.values(), key=lambda h: h["data"])
+        if prec and prec.get("sonno") and not args.completo:
+            s_dal = oggi - timedelta(days=BLOCCO_HRV_GG)
+            s_nuovo, sonno_diag = scarica_sonno(client, s_dal, oggi)
+            sonno = [x for x in prec["sonno"] if x["data"] < s_dal.isoformat()] + s_nuovo if s_nuovo else prec["sonno"]
+        else:
+            sonno, sonno_diag = scarica_sonno(client, oggi - timedelta(days=STORICO_HRV_GG), oggi)
+        sonno = sorted({x["data"]: x for x in sonno}.values(), key=lambda x: x["data"])
 
-    payload = {"attivita": attivita, "hrv": hrv}
-    if prec and {"attivita": prec.get("attivita"), "hrv": prec.get("hrv")} == payload:
-        print(f"Nessuna novità ({len(attivita)} attività). File invariato.")
-        return
+        # deduplica per id, ordina dalla più recente
+        attivita = sorted({a["id"]: a for a in attivita}.values(), key=lambda a: a["inizio"], reverse=True)
+        hrv = sorted({h["data"]: h for h in hrv}.values(), key=lambda h: h["data"])
+        tracce = aggiorna_tracce(client, attivita, prec_tracce)
 
-    payload["aggiornato"] = datetime.now().astimezone().isoformat(timespec="minutes")
-    OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    OUT_FILE.write_text(json.dumps(cifra(payload, password)), "utf-8")
-    print(f"Aggiornato: {len(attivita)} attività, {len(hrv)} giorni HRV.")
+    percorsi = perc.riconosci_percorsi(attivita, tracce["tracce"])
+    con_traccia = set(tracce["tracce"])
+    for a in attivita:
+        a["gps"] = str(a["id"]) in con_traccia
+
+    cambiati = []
+    if scrivi_se_cambiato(OUT_FILE, {"attivita": attivita, "hrv": hrv, "percorsi": percorsi,
+                                     "sonno": sonno, "sonno_diag": sonno_diag}, prec, password):
+        cambiati.append("data.enc")
+    if scrivi_se_cambiato(TRACCE_FILE, tracce, prec_tracce, password):
+        cambiati.append("tracce.enc")
+    if sonno_diag:
+        print(f"  Sonno: formato non riconosciuto, {len(sonno_diag)} nomi di campo salvati per la diagnostica.")
+    print(f"{len(attivita)} attività, {len(hrv)} giorni HRV, {len(sonno)} notti, {len(percorsi)} percorsi ricorrenti. "
+          f"File aggiornati: {', '.join(cambiati) or 'nessuno'}.")
 
 
 if __name__ == "__main__":
