@@ -185,6 +185,8 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .rio:first-child { border-top: 0; }
 .rio b { display: block; }
 .rio small { display: block; color: var(--ink2); font-size: 13px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.riepilogo { background: var(--page); border: 1px solid var(--ring); border-radius: 12px; padding: 10px 12px; margin: 4px 0 8px; display: grid; gap: 8px; }
+.riepilogo b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .pill.primario { background: var(--s1); border-color: var(--s1); color: #fff; }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
 footer button { background: none; border: 0; color: var(--ink2); text-decoration: underline; padding: 4px; }
@@ -253,7 +255,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   <main class="wrap hidden" id="view-perc">
     <section class="card" id="trendcard">
       <h2>Andamento sui percorsi ricorrenti</h2>
-      <p class="sub">Ogni punto è un'uscita: quanto sei andato più veloce (+) o più lento (−) del tuo tempo abituale su quel percorso · più in alto = più veloce</p>
+      <p class="sub">Ogni punto è un'uscita: quanto il passo al km (D+ per ora nello scialpinismo) è stato migliore (+) o peggiore (−) del tuo abituale su quel percorso · più in alto = meglio</p>
       <div class="chips" id="trendchips" style="margin-bottom:10px;flex-wrap:wrap"></div>
       <div class="kpis" id="trendkpi" style="margin-bottom:12px"></div>
       <div class="legend" id="pc1l"></div>
@@ -262,7 +264,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     <section class="card">
       <div class="top" style="margin:0"><h2>Percorsi ricorrenti</h2><button class="pill" id="nuovoperc">+ Nuovo</button></div>
       <p class="sub" id="percsub"></p>
-      <button class="pill hidden" id="riordinabtn" style="margin-bottom:6px"></button>
+      <div class="riepilogo"><p class="nota" id="riepilogo"></p><button class="pill" id="riordinabtn"></button></div>
       <div class="list" id="perclist"></div>
     </section>
     <section class="card hidden" id="suggcard">
@@ -721,11 +723,11 @@ async function apriAttivita(id) {
   add("Quota max", a.qmax ? `${nf0.format(a.qmax)} m` : null);
   let percHtml = "";
   if (p) {
-    const rip = p.attivita.map(i => ACT_BY_ID.get(i)).filter(Boolean);
-    const ord = rip.filter(tempoMov).sort((x, y) => tempoMov(x) - tempoMov(y));
+    const { rip, conM, m } = statPerc(p);
+    const ord = [...conM].sort((x, y) => m.minore ? m.f(x) - m.f(y) : m.f(y) - m.f(x));
     const pos = ord.findIndex(x => x.id === id) + 1, n = rip.findIndex(x => x.id === id) + 1;
     percHtml = `<section class="card"><h2>Percorso ricorrente <span id="confbadge"></span></h2>
-      <p class="sub">${n}ª ripetizione su ${rip.length}${pos ? ` · ${pos}° tempo su ${ord.length}` : ""}</p>
+      <p class="sub">${n}ª ripetizione su ${rip.length}${pos ? ` · ${pos}ª per ${m.breve} su ${ord.length}` : ""}</p>
       <button class="link" data-perc="${p.id}">${esc(p.nome)} →</button>
       <div class="azioni"><button class="pill" data-azatt="aggiungi-a">Sposta in un altro percorso…</button>
         <button class="pill" data-azatt="crea">Nuovo percorso con questa uscita</button>
@@ -761,22 +763,33 @@ async function apriAttivita(id) {
 }
 
 /* --- percorsi ricorrenti --- */
+// statistiche dei percorsi: passo (min/km) per corsa, trekking e altro; D+ per ora per lo scialpinismo
+const METRICHE = {
+  passo: { l: "Passo medio", breve: "passo", f: a => a.dist > 0 && tempoMov(a) ? tempoMov(a) / (a.dist / 1000) : null,
+    fmt: v => `${mmss(v)} /km`, diff: d => `${segno(d)} /km`, minore: true, su: "più veloce", giu: "più lento" },
+  salita: { l: "D+ per ora", breve: "D+ per ora", f: a => a.dplus && tempoMov(a) ? a.dplus / (tempoMov(a) / 3600) : null,
+    fmt: v => `${nf0.format(v)} m/h`, diff: d => `${d >= 0 ? "+" : "−"}${nf0.format(Math.abs(d))} m/h`, minore: false, su: "più veloce in salita", giu: "più lento in salita" },
+};
+const metricaDi = sport => sport === "scialpinismo" ? METRICHE.salita : METRICHE.passo;
 function statPerc(p) {
+  const m = metricaDi(p.sport);
   const rip = p.attivita.map(i => ACT_BY_ID.get(i)).filter(Boolean);        // dalla più vecchia
-  const best = rip.filter(tempoMov).reduce((b, x) => !b || tempoMov(x) < tempoMov(b) ? x : b, null);
-  return { rip, best, ult: rip.at(-1), rif: ACT_BY_ID.get(p.rif) || rip[0] };
+  const conM = rip.filter(a => m.f(a) != null);
+  const best = conM.reduce((b, x) => !b || (m.minore ? m.f(x) < m.f(b) : m.f(x) > m.f(b)) ? x : b, null);
+  return { rip, conM, best, ult: rip.at(-1), rif: ACT_BY_ID.get(p.rif) || rip[0], m };
 }
 
 const mediana = a => { const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
 const pct = v => `${v > 0 ? "+" : v < 0 ? "−" : ""}${nf1.format(Math.abs(v))}%`;
 
 // mini-grafico dei tempi di un percorso: più in alto = più veloce
-function sparkline(rip, best, col) {
-  const t = rip.map(tempoMov).filter(Boolean);
+function sparkline(conM, best, col, m) {
+  const t = conM.map(m.f);
   if (t.length < 2) return "";
   const lo = Math.min(...t), hi = Math.max(...t), W = 200, H = 30;
-  const xy = t.map((v, i) => [t.length === 1 ? W / 2 : i / (t.length - 1) * W, hi === lo ? H / 2 : 3 + (v - lo) / (hi - lo) * (H - 6)]);
-  const ib = rip.filter(tempoMov).findIndex(a => a.id === best?.id);
+  const y = v => hi === lo ? H / 2 : 3 + (m.minore ? (v - lo) : (hi - v)) / (hi - lo) * (H - 6);
+  const xy = t.map((v, i) => [i / (t.length - 1) * W, y(v)]);
+  const ib = conM.findIndex(a => a.id === best?.id);
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
     <polyline points="${xy.map(p => p.join(",")).join(" ")}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
     ${xy.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="${i === ib ? 3.5 : 2}" fill="${i === ib ? col : css("--surface")}" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join("")}
@@ -793,23 +806,23 @@ function renderPercorsi() {
   const lista = tutti.filter(p => p.sport !== "corsa" || p.manuale);
   const suggeriti = tutti.filter(p => p.sport === "corsa" && !p.manuale);
   const nGps = ACTS.filter(a => a.gps).length;
-  const nRio = stato.sport === "tutto" || stato.sport === "corsa" ? senzaPercorso().length : 0;
-  $("riordinabtn").classList.toggle("hidden", !nRio);
-  $("riordinabtn").textContent = `Riordina le corse senza percorso (${nRio}) →`;
-  $("percsub").textContent = `${lista.length} ${lista.length === 1 ? "percorso" : "percorsi"} · ${nGps} uscite con traccia GPS`;
+  const r = riepilogoUscite();
+  $("percsub").textContent = `${lista.length} ${lista.length === 1 ? "percorso" : "percorsi"}`;
+  $("riepilogo").innerHTML = `<b>${r.gps}</b> uscite con GPS: <b>${r.inPercorso}</b> nei percorsi · <b>${r.libere}</b> non assegnate · <b>${r.escluse}</b> escluse`;
+  $("riordinabtn").textContent = r.libere ? `Vedi le ${r.libere} uscite non assegnate →` : "Tutte le uscite sono in un percorso ✓ · vedi escluse →";
 
   // --- grafico d'insieme: scarto dal tempo mediano di ciascun percorso (solo percorsi con almeno 3 uscite)
-  const idonei = lista.filter(p => statPerc(p).rip.filter(tempoMov).length >= 3);
+  const idonei = lista.filter(p => statPerc(p).conM.length >= 3);
   if (stato.trendPerc != null && !idonei.some(p => p.id === stato.trendPerc)) stato.trendPerc = null;
   $("trendchips").innerHTML = idonei.length > 1 ? [`<button class="chip" data-trend="" aria-pressed="${stato.trendPerc == null}">Tutti</button>`,
     ...idonei.map(p => `<button class="chip" data-trend="${p.id}" aria-pressed="${stato.trendPerc === p.id}"><i class="dot" style="background:var(${SPORT[p.sport].color})"></i>${esc(p.nome)}</button>`)].join("") : "";
   $("trendchips").onclick = e => { const c = e.target.closest("[data-trend]"); if (!c) return; stato.trendPerc = c.dataset.trend ? Number(c.dataset.trend) : null; renderPercorsi(); };
   const punti = [];
   (stato.trendPerc != null ? idonei.filter(p => p.id === stato.trendPerc) : lista).forEach(p => {
-    const rip = statPerc(p).rip.filter(tempoMov);
-    if (rip.length < 3) return;
-    const med = mediana(rip.map(tempoMov));
-    rip.forEach(a => punti.push({ x: a.d.getTime(), y: (med - tempoMov(a)) / med * 100, a, p, med }));
+    const { conM, m } = statPerc(p);
+    if (conM.length < 3) return;
+    const med = mediana(conM.map(m.f));
+    conM.forEach(a => { const v = m.f(a); punti.push({ x: a.d.getTime(), y: (m.minore ? med - v : v - med) / med * 100, a, p, med, m }); });
   });
   punti.sort((u, v) => u.x - v.x);
   const card = $("trendcard");
@@ -823,7 +836,7 @@ function renderPercorsi() {
     const m30 = media(ult30.map(q => q.y)), mp = media(prec30.map(q => q.y));
     const tile = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
     $("trendkpi").innerHTML =
-      tile("Ultimi 30 giorni", m30 == null ? "–" : pct(m30), `${ult30.length} uscite · rispetto al tuo tempo abituale`) +
+      tile("Ultimi 30 giorni", m30 == null ? "–" : pct(m30), `${ult30.length} uscite · rispetto al tuo passo abituale`) +
       tile("30 giorni precedenti", mp == null ? "–" : pct(mp), `${prec30.length} uscite`);
     legenda("pc1l", [...famiglie.map(f => [SPORT[f].label, css(SPORT[f].color), true]), ["Media ultime 5 uscite", css("--ink2")]]);
     const o = baseOpts({ tooltipFmt: v => pct(v) });
@@ -841,7 +854,7 @@ function renderPercorsi() {
     o.plugins.tooltip.callbacks = {
       title: c => fDataBreve.format(new Date(c[0].parsed.x)),
       label: c => { const q = c.dataset._q?.[c.dataIndex];
-        return q ? [`${q.p.nome}`, `${hms(tempoMov(q.a))} · ${pct(q.y)} rispetto al solito (${hms(q.med)})`] : `Media ultime 5: ${pct(c.parsed.y)}`; },
+        return q ? [`${q.p.nome}`, `${q.m.fmt(q.m.f(q.a))} · ${pct(q.y)} rispetto al solito (${q.m.fmt(q.med)})`] : `Media ultime 5: ${pct(c.parsed.y)}`; },
     };
     o.plugins.tooltip.filter = c => c.parsed.y != null;
     disegna("pc1", { type: "line", data: { datasets: ds }, options: o });
@@ -849,25 +862,25 @@ function renderPercorsi() {
 
   // --- elenco percorsi con mini-grafico
   const riga = (p, rendi) => {
-    const { rip, best, ult, rif } = statPerc(p);
+    const { rip, conM, best, ult, rif, m } = statPerc(p);
     const col = css(SPORT[p.sport].color);
     const parti = [`${rip.length} uscite`];
     if (rif?.dist) parti.push(`${kmFmt(rif.dist / 1000)} km`);
     if (rif?.dplus) parti.push(`D+ ${nf0.format(rif.dplus)} m`);
     let t = "";
-    if (best && tempoMov(ult)) {
-      const d = tempoMov(ult) - tempoMov(best);
-      t = `Migliore ${hms(tempoMov(best))} · ultima ${hms(tempoMov(ult))} ${ult.id === best.id ? "(è la migliore)" : `(${segno(d)})`}`;
+    if (best && m.f(ult) != null) {
+      const d = m.f(ult) - m.f(best);
+      t = `${m.l}: migliore ${m.fmt(m.f(best))} · ultima ${m.fmt(m.f(ult))} ${ult.id === best.id ? "(è la migliore)" : `(${m.diff(d)})`}`;
     }
-    const tt = rip.map(tempoMov).filter(Boolean);
+    const tt = conM.map(m.f);
     let trend = "";
     if (tt.length >= 4) {
       const k = Math.min(3, Math.floor(tt.length / 2));
       const prime = media(tt.slice(0, k)), ultime = media(tt.slice(-k));
-      const v = (prime - ultime) / prime * 100;
-      trend = `<span class="trend">${v >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(v))}% ${v >= 0 ? "più veloce" : "più lento"}<br>ultime ${k} vs prime ${k}</span>`;
+      const v = (m.minore ? prime - ultime : ultime - prime) / prime * 100;
+      trend = `<span class="trend">${v >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(v))}% ${v >= 0 ? m.su : m.giu}<br>${m.breve}, ultime ${k} vs prime ${k}</span>`;
     }
-    const sp = sparkline(rip, best, col);
+    const sp = sparkline(conM, best, col, m);
     return `<div class="route" data-perc="${p.id}"><i class="dot" style="background:var(${SPORT[p.sport].color})"></i>
       <div class="n">${esc(p.nome)}</div><div class="m">${parti.join(" · ")}</div>${t ? `<div class="m">${t}</div>` : ""}
       ${sp ? `<div class="spark">${sp}${trend}</div>` : ""}
@@ -880,9 +893,8 @@ function renderPercorsi() {
 
 async function apriPercorso(pid) {
   const p = PERC.find(x => x.id === pid); if (!p) return;
-  const { rip, best, rif } = statPerc(p);
+  const { rip, conM, best, rif, m } = statPerc(p);
   const col = css(SPORT[p.sport].color), colSel = css("--s7");
-  const corsa = p.sport === "corsa" || p.sport === "trekking";
   const info = [SPORT[p.sport].label, `${rip.length} uscite`];
   if (rif?.dist) info.push(`${kmFmt(rif.dist / 1000)} km`);
   if (rif?.dplus) info.push(`D+ ${nf0.format(rif.dplus)} m`);
@@ -893,10 +905,10 @@ async function apriPercorso(pid) {
       <button class="pill" data-azperc="aggiungi">Aggiungi uscita</button></div>
     <div class="mappa" id="mappa"><div class="empty" style="padding:16px">Caricamento traccia…</div></div>
     <div class="legend" id="mapl" style="margin:8px 2px 0"></div>
-    <section class="card"><h2>Tempo in movimento</h2><p class="sub">Una ripetizione per punto · più in alto = più veloce</p>
+    <section class="card"><h2>${m.l} per uscita</h2><p class="sub">${m.minore ? "Minuti al km, tempo in movimento" : "Metri di dislivello all'ora, tempo in movimento, discesa inclusa"} · più in alto = meglio</p>
       <div class="chartbox"><canvas id="s1"></canvas></div></section>
-    <section class="card" id="s2card"><h2>${corsa ? "FC media" : "D+ per ora"}</h2>
-      <p class="sub">${corsa ? "Sullo stesso percorso, a parità di tempo una FC più bassa indica una forma migliore" : "Metri di dislivello all'ora, tempo in movimento, discesa inclusa"}</p>
+    <section class="card" id="s2card"><h2>FC media</h2>
+      <p class="sub">Sullo stesso percorso, a parità di ${m.breve} una FC più bassa indica una forma migliore</p>
       <div class="chartbox"><canvas id="s2"></canvas></div></section>
     <section class="card"><h2>Ripetizioni</h2><p class="sub">Tocca una ripetizione per confrontarla con la migliore</p><div id="riplist"></div></section>
     <section class="card hidden" id="gapcard"><h2>Distacco dalla migliore</h2>
@@ -908,39 +920,38 @@ async function apriPercorso(pid) {
     if (b) azionePercorso(b.dataset.azperc, p);
     else if (t) { e.stopPropagation(); togliDaPercorso(Number(t.dataset.togli), p); }
   };
-  // grafico tempi
-  const conT = rip.filter(tempoMov);
-  const etich = conT.map(a => fDataRip.format(a.d));
-  const o1 = baseOpts({ reverse: true, tooltipFmt: (v, tick) => hms(v * 60) });
+  // grafico della metrica (passo o D+/h)
+  const etich = conM.map(a => fDataRip.format(a.d));
+  const o1 = baseOpts({ reverse: m.minore, tooltipFmt: v => m.fmt(v) });
   o1.scales.y.beginAtZero = false;
-  o1.plugins.tooltip.callbacks = { label: c => `${nomePulito(conT[c.dataIndex])}: ${hms(c.parsed.y * 60)}${conT[c.dataIndex].id === best?.id ? " · migliore" : ""}` };
-  disegna("s1", { type: "line", data: { labels: etich, datasets: [{ label: "Tempo", data: conT.map(a => tempoMov(a) / 60),
+  o1.plugins.tooltip.callbacks = { label: c => { const a = conM[c.dataIndex];
+    return [`${nomePulito(a)}: ${m.fmt(c.parsed.y)}${a.id === best?.id ? " · migliore" : ""}`, `${a.dist ? kmFmt(a.dist / 1000) + " km · " : ""}${hms(tempoMov(a))}`]; } };
+  disegna("s1", { type: "line", data: { labels: etich, datasets: [{ label: m.l, data: conM.map(m.f),
     borderColor: col + "73", borderWidth: 2, tension: .2,
-    pointRadius: conT.map(a => a.id === best?.id ? 6 : 4), pointBackgroundColor: conT.map(a => a.id === best?.id ? col : col + "99"),
+    pointRadius: conM.map(a => a.id === best?.id ? 6 : 4), pointBackgroundColor: conM.map(a => a.id === best?.id ? col : col + "99"),
     pointBorderColor: css("--surface"), pointBorderWidth: 1.5 }] }, options: o1 });
 
-  // grafico FC o D+/h
-  const v2 = rip.map(a => corsa ? (a.fc || null) : (a.dplus && a.mov ? a.dplus / (a.mov / 3600) : null));
+  // grafico FC
+  const v2 = rip.map(a => a.fc || null);
   if (v2.filter(v => v != null).length >= 2) {
-    const f2 = corsa ? v => `${nf0.format(v)} bpm` : v => `${nf0.format(v)} m/h`;
+    const f2 = v => `${nf0.format(v)} bpm`;
     const o2 = baseOpts({ tooltipFmt: f2 }); o2.scales.y.beginAtZero = false;
-    disegna("s2", { type: "line", data: { labels: rip.map(a => fDataRip.format(a.d)), datasets: [{ label: corsa ? "FC media" : "D+ per ora",
+    disegna("s2", { type: "line", data: { labels: rip.map(a => fDataRip.format(a.d)), datasets: [{ label: "FC media",
       data: v2, borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 4, spanGaps: true, tension: .2 }] }, options: o2 });
   } else $("s2card").classList.add("hidden");
 
   // elenco ripetizioni (dalla più recente)
   $("riplist").innerHTML = [...rip].reverse().map(a => {
-    const t = tempoMov(a), d = t && best ? t - tempoMov(best) : null;
+    const v = m.f(a), d = v != null && best ? v - m.f(best) : null;
     const extra = [];
     if (a.dist) extra.push(`<b class="km">${kmFmt(a.dist / 1000)} km</b>`);
     if (a.dplus && p.sport !== "corsa") extra.push(`D+ ${nf0.format(a.dplus)} m`);
-    if (p.sport === "corsa" && a.dist && a.mov) extra.push(`${mmss(a.mov / (a.dist / 1000))} /km`);
-    if (p.sport === "scialpinismo" && a.dplus && a.mov) extra.push(`${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
+    if (tempoMov(a)) extra.push(hms(tempoMov(a)));
     if (a.fc) extra.push(`♥ ${nf0.format(a.fc)}`);
     return `<div class="rip" data-rip="${a.id}"><span class="sm" data-mini="${a.id}"></span><div class="d">${fDataBreve.format(a.d)} ${String(a.d.getFullYear()).slice(2)} <span data-badge="${a.id}"></span></div>
-      <div class="t">${t ? hms(t) : "–"}</div>
+      <div class="t">${v != null ? m.fmt(v) : "–"}</div>
       <div class="m">${extra.join(" · ")} · <button class="link" data-att="${a.id}">dettagli</button> · <button class="link" data-togli="${a.id}">togli</button></div>
-      <div class="x">${a.id === best?.id ? "migliore" : d != null ? segno(d) : ""}</div></div>`;
+      <div class="x">${a.id === best?.id ? "migliore" : d != null ? m.diff(d) : ""}</div></div>`;
   }).join("");
 
   const T = await tracce();
@@ -982,7 +993,7 @@ async function apriPercorso(pid) {
   };
   $("riplist").onclick = e => { const r = e.target.closest(".rip"); if (r && !e.target.closest("[data-att],[data-togli]")) seleziona(Number(r.dataset.rip)); };
   const ult = rip.at(-1);
-  const ord = rip.filter(tempoMov).sort((x, y) => tempoMov(x) - tempoMov(y));
+  const ord = [...conM].sort((x, y) => m.minore ? m.f(x) - m.f(y) : m.f(y) - m.f(x));
   seleziona(ult && best && ult.id !== best.id ? ult.id : (ord[1] || ult).id);
 }
 
@@ -1491,58 +1502,88 @@ function legendaConfronto(id, nomeRif) {
     (nomeRif ? `<span><i style="display:inline-block;width:16px;border-top:3px dashed var(--muted)"></i>${esc(nomeRif)} (riferimento)</span>` : "");
 }
 
-/* ======================= Riordino delle corse senza percorso ======================= */
-function senzaPercorso() {
-  const esc = new Set(ABB.escludi.map(String));
-  return ACTS.filter(a => a.sport === "corsa" && a.gps && !PERC_DI.get(a.id)?.manuale && !esc.has(String(a.id)) && !ABB.assegna[a.id]);
+/* ======================= Uscite non assegnate (tutti gli sport) ======================= */
+// un percorso "conta" se è di corsa ed è tuo, oppure se è di un altro sport (anche riconosciuto in automatico)
+const percorsoValido = p => !!p && (p.sport !== "corsa" || p.manuale);
+const escluseSet = () => new Set(ABB.escludi.map(String));
+function nonAssegnate() {
+  const e = escluseSet();
+  return ACTS.filter(a => a.gps && !percorsoValido(PERC_DI.get(a.id)) && !e.has(String(a.id)));
 }
-let RIO_SCROLL = 0;
+function riepilogoUscite() {
+  const e = escluseSet(), gps = ACTS.filter(a => a.gps);
+  const escluse = gps.filter(a => e.has(String(a.id))).length, libere = nonAssegnate().length;
+  return { gps: gps.length, escluse, libere, inPercorso: gps.length - escluse - libere };
+}
+const senzaPercorso = nonAssegnate;      // compatibilità
+let RIO_SCROLL = 0, RIO_SPORT = "tutte";
+const NOTE_SPORT = { sci: "Lo sci in pista non forma percorsi in automatico (le piste cambiano ogni giornata), ma puoi raggrupparle a mano." };
 async function apriRiordino() {
-  apriSheet("Riordina le corse", `<div class="empty" style="padding:16px">Confronto dei tracciati…</div>`);
+  apriSheet("Uscite non assegnate", `<div class="empty" style="padding:16px">Confronto dei tracciati…</div>`);
   await tracce();
   if (PILA.at(-1)?.tipo !== "riordino") return;
-  const miei = PERC.filter(p => p.sport === "corsa" && p.manuale);
-  const lista = senzaPercorso();
-  if (!lista.length) { apriSheet("Riordina le corse", `<section class="card"><h2>Fatto ✓</h2><p class="sub">Tutte le corse con traccia GPS sono in un percorso o escluse.</p></section>`); return; }
-  const righe = lista.map(a => {
-    const ordine = { stesso: 0, variante: 1, altro: 2 };
+  const tutte = nonAssegnate(), e = escluseSet();
+  const escluse = ACTS.filter(a => e.has(String(a.id)));
+  const conta = {}; tutte.forEach(a => conta[a.sport] = (conta[a.sport] || 0) + 1);
+  if (RIO_SPORT !== "tutte" && !conta[RIO_SPORT]) RIO_SPORT = "tutte";
+  const lista = RIO_SPORT === "tutte" ? tutte : tutte.filter(a => a.sport === RIO_SPORT);
+  const ordine = { stesso: 0, variante: 1, altro: 2 };
+  const riga = a => {
+    const candidati = PERC.filter(p => p.sport === a.sport && percorsoValido(p));
     let best = null;
-    miei.forEach(p => { const c = confrontaPercorso(a.id, p);
+    candidati.forEach(p => { const c = confrontaPercorso(a.id, p);
       if (c && (!best || ordine[c.cat] < ordine[best.c.cat] || (ordine[c.cat] === ordine[best.c.cat] && c.media < best.c.media))) best = { p, c }; });
     const sugg = best && best.c.cat !== "altro" ? best : null;
-    const info = [fDataRip.format(a.d), a.dist ? `${kmFmt(a.dist / 1000)} km` : null, tempoMov(a) ? hms(tempoMov(a)) : null,
-      a.dist && a.mov ? `${mmss(a.mov / (a.dist / 1000))} /km` : null].filter(Boolean).join(" · ");
+    const m = metricaDi(a.sport), v = m.f(a);
+    const info = [fDataRip.format(a.d), a.dist ? `<b>${kmFmt(a.dist / 1000)} km</b>` : null, a.dplus && a.sport !== "corsa" ? `D+ ${nf0.format(a.dplus)} m` : null,
+      v != null ? m.fmt(v) : null, tempoMov(a) ? hms(tempoMov(a)) : null].filter(Boolean).join(" · ");
+    const dove = PERC_DI.get(a.id);
     return `<div class="rio">
-      <span class="sm">${miniatura(a.id, sugg ? sugg.c.rif : null, css("--s1"))}</span>
-      <div><b>${esc(nomePulito(a))}</b><small>${info}</small>
-        <small>${sugg ? `→ ${esc(sugg.p.nome)} ${badge(sugg.c.cat)}` : "Nessun tuo percorso simile"}</small></div>
+      <span class="sm">${miniatura(a.id, sugg ? sugg.c.rif : null, css(SPORT[a.sport].color))}</span>
+      <div><b><i class="dot" style="background:var(${SPORT[a.sport].color});margin-right:6px"></i>${esc(nomePulito(a))}</b><small>${info}</small>
+        <small>${sugg ? `Simile a: ${esc(sugg.p.nome)} ${badge(sugg.c.cat)}` : "Nessun tuo percorso simile"}${dove && !percorsoValido(dove) ? ` · proposta: “${esc(dove.nome)}”` : ""}</small></div>
       <div class="azioni" style="grid-column:1 / 3;margin-top:6px">
         ${sugg ? `<button class="pill primario" data-rio="conferma" data-id="${a.id}" data-p="${sugg.p.id}">✓ ${esc(sugg.p.nome)}</button>` : ""}
         <button class="pill" data-rio="scegli" data-id="${a.id}">Scegli…</button>
         <button class="pill" data-rio="nuovo" data-id="${a.id}">Nuovo</button>
-        <button class="pill" data-rio="nessuno" data-id="${a.id}">Nessuno</button>
+        <button class="pill" data-rio="nessuno" data-id="${a.id}">Escludi</button>
         <button class="link" data-att="${a.id}">dettagli</button>
       </div></div>`;
-  });
-  apriSheet(`Riordina · ${lista.length} ${lista.length === 1 ? "corsa" : "corse"}`, `
-    <p class="nota" style="margin:12px 2px">Corse con traccia GPS che non sono in nessun tuo percorso, dalla più recente. In grigio la forma del percorso più simile, a colori la corsa.</p>
-    <section class="card" style="padding:4px 14px">${righe.join("")}</section>`);
+  };
+  const chips = [`<button class="chip" data-rsport="tutte" aria-pressed="${RIO_SPORT === "tutte"}">Tutte ${tutte.length}</button>`,
+    ...FAMIGLIE.filter(f => conta[f]).map(f => `<button class="chip" data-rsport="${f}" aria-pressed="${RIO_SPORT === f}"><i class="dot" style="background:var(${SPORT[f].color})"></i>${SPORT[f].label} ${conta[f]}</button>`)].join("");
+  apriSheet(`Non assegnate · ${tutte.length}`, `
+    <p class="nota" style="margin:12px 2px">Uscite con traccia GPS che non sono in nessun percorso, dalla più recente. Nella miniatura: a colori l'uscita, in grigio la forma del percorso più simile.</p>
+    <div class="chips" style="flex-wrap:wrap;margin:0 0 4px">${chips}</div>
+    ${RIO_SPORT !== "tutte" && NOTE_SPORT[RIO_SPORT] ? `<p class="nota" style="margin:8px 2px">${NOTE_SPORT[RIO_SPORT]}</p>` : ""}
+    <section class="card" style="padding:4px 14px">${lista.length ? lista.map(riga).join("") : `<div class="empty">Nessuna uscita da assegnare ✓</div>`}</section>
+    <section class="card"><h2>Escluse da te · ${escluse.length}</h2>
+      <p class="sub">Non entrano in nessun percorso e non vengono più proposte</p>
+      ${escluse.length ? escluse.map(a => `<div class="rio"><span class="sm">${miniatura(a.id, null, css(SPORT[a.sport].color))}</span>
+        <div><b>${esc(nomePulito(a))}</b><small>${fDataRip.format(a.d)}${a.dist ? ` · ${kmFmt(a.dist / 1000)} km` : ""} · ${SPORT[a.sport].label}</small>
+        <div class="azioni" style="margin-top:6px"><button class="pill" data-rio="ripristina" data-id="${a.id}">Ripristina</button>
+        <button class="link" data-att="${a.id}">dettagli</button></div></div></div>`).join("") : `<div class="empty">Nessuna.</div>`}
+    </section>`);
   $("sheet").scrollTop = RIO_SCROLL; RIO_SCROLL = 0;
-  $("sheetbody").onclick = async e => {
-    const b = e.target.closest("[data-rio]"); if (!b) return;
-    const id = Number(b.dataset.id), az = b.dataset.rio, y = $("sheet").scrollTop;
+  $("sheetbody").onclick = async ev => {
+    const ch = ev.target.closest("[data-rsport]");
+    if (ch) { RIO_SPORT = ch.dataset.rsport; mostraTop(); return; }
+    const b = ev.target.closest("[data-rio]"); if (!b) return;
+    const id = Number(b.dataset.id), az = b.dataset.rio, y = $("sheet").scrollTop, a = ACT_BY_ID.get(id);
     const dopo = () => { RIO_SCROLL = y; mostraTop(); };
     if (az === "conferma") { const p = PERC.find(q => q.id === Number(b.dataset.p)); if (p) await modifica(`Uscita abbinata a ${p.nome}`, () => OP.aggiungi(id, p), dopo); }
     else if (az === "scegli") {
-      const voci = miei.map(p => vocePercorsoConf(p, id)).sort(perSomiglianza);
-      const pid = await scegli("In quale percorso va?", voci, "Non hai ancora percorsi di corsa: creane uno nuovo."); if (!pid) return;
+      const voci = PERC.filter(p => p.sport === a.sport && percorsoValido(p)).map(p => vocePercorsoConf(p, id)).sort(perSomiglianza);
+      const pid = await scegli("In quale percorso va?", voci, "Non hai ancora percorsi di questo sport: creane uno nuovo."); if (!pid) return;
       const p = PERC.find(q => String(q.id) === pid); await modifica(`Uscita abbinata a ${p.nome}`, () => OP.aggiungi(id, p), dopo);
     } else if (az === "nuovo") {
       const nome = await chiediNome("Nome del nuovo percorso", ""); if (!nome) return;
       await modifica(`Nuovo percorso: ${nome}`, () => OP.crea(nome, [id]), dopo);
     } else if (az === "nessuno") await modifica("Uscita esclusa dai percorsi", () => OP.togli(id, PERC_DI.get(id)), dopo);
+    else if (az === "ripristina") await modifica("Uscita ripristinata", () => togliEsclusione(id), dopo);
   };
 }
+
 
 /* ======================= Sonno ======================= */
 const QUALITA = { EXCELLENT: "Ottimo", GOOD: "Buono", FAIR: "Discreto", POOR: "Scarso" };
@@ -1657,7 +1698,7 @@ $("reload").onclick = async () => { const pw = pwCorrente(); if (pw) { try { awa
 $("tab-pano").onclick = () => { stato.vista = "pano"; render(); window.scrollTo(0, 0); };
 $("tab-perc").onclick = () => { stato.vista = "perc"; render(); window.scrollTo(0, 0); };
 $("nuovoperc").onclick = () => nuovoPercorso();
-$("riordinabtn").onclick = () => { if (!GH.token) { vai("gh", 0); return; } vai("riordino", 0); };
+$("riordinabtn").onclick = () => vai("riordino", 0);
 $("inbox").onclick = () => vai("inbox", 0);
 $("garminbtn").onclick = () => aggiornaDaGarmin();
 $("tab-sonno").onclick = () => { stato.vista = "sonno"; render(); window.scrollTo(0, 0); };
