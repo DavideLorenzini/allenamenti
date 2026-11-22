@@ -177,39 +177,52 @@ def _nome_manuale(nome: str) -> str | None:
     return s[1:].strip() if s.startswith("#") and len(s) > 1 else None
 
 
+def normalizza_abbinamenti(abb: dict | None) -> dict:
+    """Formato v2: ancore (attività che 'rappresenta' il suo gruppo automatico), assegna (singole uscite spostate)."""
+    abb = dict(abb or {})
+    if abb.get("v", 1) < 2:                     # v1: ogni assegnazione era un'ancora
+        abb = {"v": 2, "gruppi": abb.get("gruppi") or {}, "ancore": abb.get("assegna") or {},
+               "assegna": {}, "escludi": abb.get("escludi") or []}
+    for k in ("gruppi", "ancore", "assegna"):
+        abb[k] = {str(a): b for a, b in (abb.get(k) or {}).items()}
+    abb["escludi"] = [str(x) for x in (abb.get("escludi") or [])]
+    return abb
+
+
 def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict | None = None) -> list[dict]:
     """
-    1) raggruppa in automatico le uscite con tracciato uguale;
-    2) UNISCE i gruppi che condividono una chiave manuale:
-       - abbinamenti fatti dall'app (abb["assegna"]: id attività -> chiave gruppo, nomi in abb["gruppi"]);
-       - #nome dato all'uscita in Garmin Connect;
-    3) esclude le uscite tolte dall'app (abb["escludi"]) o chiamate "#escludi".
-    Le scelte fatte nell'app hanno la precedenza sul #nome.
+    1) raggruppa in automatico le uscite con tracciato uguale (escluse quelle spostate a mano);
+    2) unisce i gruppi che condividono una chiave: ancora dell'app (rinomina/unisci) o #nome in Garmin;
+    3) aggiunge le uscite spostate a mano nel gruppo scelto (abb["assegna"]);
+    4) toglie le uscite escluse (abb["escludi"] o "#escludi").
     """
-    abb = abb or {}
-    assegna = {str(k): v for k, v in (abb.get("assegna") or {}).items()}
-    nomi_app = {k: (g or {}).get("nome") for k, g in (abb.get("gruppi") or {}).items()}
-    escludi = {str(x) for x in (abb.get("escludi") or [])}
+    abb = normalizza_abbinamenti(abb)
+    ancore, assegna, nomi_app = abb["ancore"], abb["assegna"], {k: (g or {}).get("nome") for k, g in abb["gruppi"].items()}
+    escludi = set(abb["escludi"])
 
     cand = []
     for a in sorted(attivita, key=lambda x: x["inizio"]):           # dalla più vecchia
-        k_app = assegna.get(str(a["id"]))
+        sid = str(a["id"])
         manuale = _nome_manuale(a.get("nome", ""))
-        if not k_app and (str(a["id"]) in escludi or (manuale and manuale.lower().startswith("escludi"))):
+        if sid in assegna:
+            cand.append({**a, "_chiave": f"app:{assegna[sid]}", "_app": assegna[sid], "_manuale": None, "_firma": None, "_spostata": True})
             continue
-        if a["sport"] not in FAMIGLIE_PERCORSO and not manuale and not k_app:
+        if sid in escludi or (manuale and manuale.lower().startswith("escludi")):
             continue
-        chiave = f"app:{k_app}" if k_app else (f"#:{manuale.casefold()}" if manuale else None)
-        pts = tracce.get(str(a["id"]))
-        cand.append({**a, "_chiave": chiave, "_app": k_app, "_manuale": manuale,
-                     "_firma": _firma(pts) if pts and len(pts) >= 10 else None})
+        if a["sport"] not in FAMIGLIE_PERCORSO and not manuale and sid not in ancore:
+            continue
+        k_anc = ancore.get(sid)
+        chiave = f"app:{k_anc}" if k_anc else (f"#:{manuale.casefold()}" if manuale else None)
+        pts = tracce.get(sid)
+        cand.append({**a, "_chiave": chiave, "_app": k_anc, "_manuale": None if k_anc else manuale,
+                     "_firma": _firma(pts) if pts and len(pts) >= 10 else None, "_spostata": False})
 
-    # 1) gruppi automatici
+    # 1) gruppi automatici (le uscite spostate a mano restano singole)
     gruppi: list[list[dict]] = []
     for a in cand:
-        if a["_firma"]:
+        if a["_firma"] and not a["_spostata"]:
             for g in gruppi:
-                if g[0]["_firma"] and _uguali(a, g[0]):
+                if g[0]["_firma"] and not g[0]["_spostata"] and _uguali(a, g[0]):
                     g.append(a)
                     break
             else:
@@ -217,7 +230,7 @@ def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict 
         else:
             gruppi.append([a])
 
-    # 2) unione per chiave manuale (union-find)
+    # 2-3) unione per chiave (union-find)
     padre = list(range(len(gruppi)))
     def radice(i):
         while padre[i] != i:
@@ -240,12 +253,12 @@ def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict 
     for membri in uniti.values():
         membri.sort(key=lambda x: x["inizio"])
         chiavi_app = [m["_app"] for m in membri if m["_app"]]
-        nomi_hash = [m["_manuale"] for m in membri if m["_manuale"] and not m["_app"]]
+        nomi_hash = [m["_manuale"] for m in membri if m["_manuale"]]
         if len(membri) < 2 and not chiavi_app and not nomi_hash:
             continue
-        rif = next((m for m in membri if m["_firma"]), membri[0])
+        rif = next((m for m in membri if m["_firma"]), next((m for m in membri if not m["_spostata"]), membri[0]))
         nome = next((nomi_app.get(k) for k in chiavi_app if nomi_app.get(k)), None) \
-            or (nomi_hash[-1] if nomi_hash else None)                  # vince il #nome più recente
+            or (nomi_hash[-1] if nomi_hash else None)
         if not nome:
             km = (rif["dist"] or 0) / 1000
             nome = f"{rif.get('luogo') or 'Percorso'} · {km:.1f} km".replace(".", ",")
