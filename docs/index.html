@@ -131,6 +131,7 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .rip[aria-selected=true] { background: var(--grid); }
 .rip .d { font-weight: 600; }
 .rip .t { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; }
+.rip .km { color: var(--ink); font-weight: 600; }
 .rip .m { color: var(--ink2); font-size: 13px; font-variant-numeric: tabular-nums; }
 .rip .x { color: var(--muted); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
 .link { background: none; border: 0; color: var(--s1); padding: 0; font-weight: 600; text-align: left; cursor: pointer; }
@@ -931,6 +932,8 @@ async function apriPercorso(pid) {
   $("riplist").innerHTML = [...rip].reverse().map(a => {
     const t = tempoMov(a), d = t && best ? t - tempoMov(best) : null;
     const extra = [];
+    if (a.dist) extra.push(`<b class="km">${kmFmt(a.dist / 1000)} km</b>`);
+    if (a.dplus && p.sport !== "corsa") extra.push(`D+ ${nf0.format(a.dplus)} m`);
     if (p.sport === "corsa" && a.dist && a.mov) extra.push(`${mmss(a.mov / (a.dist / 1000))} /km`);
     if (p.sport === "scialpinismo" && a.dplus && a.mov) extra.push(`${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
     if (a.fc) extra.push(`♥ ${nf0.format(a.fc)}`);
