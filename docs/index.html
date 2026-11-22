@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Allenamenti</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#1a1a19">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Allenamenti">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
+<script src="chart.umd.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s7: #6250d6;
+  --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s7: #9085e9;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 24px); }
+.wrap { max-width: 560px; margin: 0 auto; padding: 0 14px; }
+.hidden { display: none !important; }
+button { font: inherit; color: inherit; }
+
+/* Blocco */
+#lock { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+#lock form { width: 100%; max-width: 340px; display: grid; gap: 12px; }
+#lock h1 { font-size: 22px; margin: 0 0 4px; }
+#lock p { margin: 0; color: var(--ink2); }
+#lock input[type=password] { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--axis);
+  background: var(--surface); color: var(--ink); font-size: 16px; }
+#lock label { color: var(--ink2); font-size: 14px; display: flex; gap: 8px; align-items: center; }
+.btn { padding: 12px; border-radius: 12px; border: 0; background: var(--s1); color: #fff; font-weight: 600; }
+.err { color: var(--critical); font-size: 14px; min-height: 1.2em; }
+
+/* Testata */
+header { position: sticky; top: 0; z-index: 5; background: var(--page);
+  padding: 10px 0 8px; border-bottom: 1px solid var(--grid); }
+.top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.top h1 { font-size: 20px; margin: 0; }
+.top small { color: var(--muted); display: block; font-size: 12px; }
+.iconbtn { background: none; border: 1px solid var(--grid); border-radius: 10px; padding: 6px 10px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: 0 0 auto; border: 1px solid var(--grid); background: var(--surface); border-radius: 999px;
+  padding: 6px 12px; font-size: 14px; color: var(--ink2); display: inline-flex; gap: 6px; align-items: center; }
+.chip[aria-pressed=true] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
+.chips + .chips { margin-top: 6px; }
+
+/* Card */
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 16px; padding: 14px; margin-top: 12px; }
+.card h2 { font-size: 15px; margin: 0 0 2px; }
+.card .sub { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
+.kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 12px; }
+.kpi .l { color: var(--ink2); font-size: 13px; }
+.kpi .v { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.kpi .v span { font-size: 14px; font-weight: 500; color: var(--ink2); margin-left: 2px; }
+.kpi .d { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.periodo { color: var(--muted); font-size: 12px; margin: 12px 2px -4px; }
+.chartbox { position: relative; height: 210px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--ink2); margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rec { display: grid; gap: 8px; }
+.rec div { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; }
+.rec b { font-variant-numeric: tabular-nums; }
+.rec small { color: var(--muted); display: block; font-size: 12px; }
+.list { display: grid; gap: 0; }
+.att { display: grid; grid-template-columns: 12px 1fr auto; gap: 4px 10px; padding: 10px 0; border-top: 1px solid var(--grid); align-items: start; }
+.att:first-child { border-top: 0; }
+.att .dot { margin-top: 6px; }
+.att .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att .m { color: var(--ink2); font-size: 13px; grid-column: 2 / 4; font-variant-numeric: tabular-nums; }
+.att .t { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+.chartbox .vuoto { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+footer button { background: none; border: 0; color: var(--ink2); text-decoration: underline; padding: 4px; }
+</style>
+</head>
+<body>
+
+<div id="lock">
+  <form id="lockform" autocomplete="on">
+    <h1>Allenamenti</h1>
+    <p>Inserisci la password della dashboard.</p>
+    <input type="text" name="username" value="dashboard" autocomplete="username" hidden>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
+    <label><input id="remember" type="checkbox" checked> Ricorda su questo dispositivo</label>
+    <button class="btn" type="submit" id="unlockbtn">Sblocca</button>
+    <div class="err" id="lockerr"></div>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="wrap">
+      <div class="top">
+        <div><h1>Allenamenti</h1><small id="agg"></small></div>
+        <button class="iconbtn" id="reload" aria-label="Aggiorna">↻</button>
+      </div>
+      <div class="chips" id="sportchips"></div>
+      <div class="chips" id="periodchips"></div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="periodo" id="periodolbl"></div>
+    <div class="kpis" id="kpis" style="margin-top:12px"></div>
+
+    <section class="card">
+      <h2 id="c1t"></h2><p class="sub" id="c1s"></p>
+      <div class="legend" id="c1l"></div>
+      <div class="chartbox"><canvas id="c1"></canvas></div>
+    </section>
+
+    <section class="card">
+      <h2 id="c2t"></h2><p class="sub" id="c2s"></p>
+      <div class="legend" id="c2l"></div>
+      <div class="chartbox"><canvas id="c2"></canvas></div>
+    </section>
+
+    <section class="card" id="c3card">
+      <h2 id="c3t"></h2><p class="sub" id="c3s"></p>
+      <div class="legend" id="c3l"></div>
+      <div class="chartbox"><canvas id="c3"></canvas></div>
+    </section>
+
+    <section class="card" id="reccard">
+      <h2>Record</h2><p class="sub">Su tutto lo storico</p>
+      <div class="rec" id="rec"></div>
+    </section>
+
+    <section class="card">
+      <h2>Ultime attività</h2>
+      <div class="list" id="list"></div>
+    </section>
+
+    <footer>
+      Dati Garmin Connect · <button id="logout">Esci e dimentica password</button>
+    </footer>
+  </main>
+</div>
+
+<script>
+"use strict";
+/* ======================= Configurazione ======================= */
+const SPORT = {
+  tutto:        { label: "Tutto" },
+  corsa:        { label: "Corsa",        color: "--s1", main: "km",     kpi: ["km","uscite","ore","dplus","passo","fc"] },
+  scialpinismo: { label: "Scialpinismo", color: "--s2", main: "dplus",  kpi: ["dplus","uscite","ore","km","vsalita","qmax"] },
+  sci:          { label: "Sci",          color: "--s3", main: "dminus", kpi: ["dminus","giorni","km","vmax"] },
+  trekking:     { label: "Trekking",     color: "--s4", main: "km",     kpi: ["km","dplus","ore","uscite","qmax","fc"] },
+  altro:        { label: "Altro",        color: "--s7" },
+};
+SPORT.tutto.main = "ore"; SPORT.tutto.kpi = ["uscite","ore","km","dplus"];
+const FAMIGLIE = ["corsa","scialpinismo","sci","trekking","altro"];   // ordine fisso = colori fissi
+const PERIODI = {
+  "7g":   { label: "7 giorni" },
+  "30g":  { label: "30 giorni" },
+  "anno": { label: "Anno" },
+  "stag": { label: "Stagione inv." },
+  "12m":  { label: "12 mesi" },
+};
+
+const nf0 = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
+const nf1 = new Intl.NumberFormat("it-IT", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const fDataBreve = new Intl.DateTimeFormat("it-IT", { weekday: "short", day: "numeric", month: "short" });
+const fDataLunga = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "short", year: "numeric" });
+const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+
+const sum = (arr, k) => arr.reduce((s, a) => s + (a[k] || 0), 0);
+const hm = s => { const m = Math.round(s / 60); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}`; };
+const mmss = s => { s = Math.round(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const kmFmt = km => km >= 100 ? nf0.format(km) : nf1.format(km);
+
+/* Metriche: f(attività) -> numero | null ; fmt(numero) -> [valore, unità] */
+const MET = {
+  uscite:  { l: "Uscite",       f: a => a.length,                          fmt: v => [nf0.format(v), ""] },
+  giorni:  { l: "Giorni",       f: a => new Set(a.map(x => x.inizio.slice(0, 10))).size, fmt: v => [nf0.format(v), ""] },
+  km:      { l: "Distanza",     f: a => sum(a, "dist") / 1000,             fmt: v => [kmFmt(v), "km"] },
+  ore:     { l: "Tempo",        f: a => sum(a, "durata"),                  fmt: v => [hm(v), ""] , ax: v => v / 3600, axu: "h" },
+  dplus:   { l: "Dislivello +", f: a => sum(a, "dplus"),                   fmt: v => [nf0.format(v), "m"] },
+  dminus:  { l: "Dislivello −", f: a => sum(a, "dminus"),                  fmt: v => [nf0.format(v), "m"] },
+  passo:   { l: "Passo medio",  lowerBetter: true,
+             f: a => { const b = a.filter(x => x.dist > 0 && x.mov > 0); const km = sum(b, "dist") / 1000;
+                       return km > 0 ? sum(b, "mov") / km : null; },
+             fmt: v => [mmss(v), "/km"] },
+  fc:      { l: "FC media",     f: a => { const b = a.filter(x => x.fc && x.durata); const t = sum(b, "durata");
+                                         return t ? b.reduce((s, x) => s + x.fc * x.durata, 0) / t : null; },
+             fmt: v => [nf0.format(v), "bpm"] },
+  vsalita: { l: "D+ per ora",   f: a => { const b = a.filter(x => x.dplus && x.mov); const h = sum(b, "mov") / 3600;
+                                         return h ? sum(b, "dplus") / h : null; },
+             fmt: v => [nf0.format(v), "m/h"], note: "tempo in movimento, discesa inclusa" },
+  qmax:    { l: "Quota max",    f: a => { const q = a.map(x => x.qmax).filter(Number.isFinite); return q.length ? Math.max(...q) : null; },
+             fmt: v => [nf0.format(v), "m"] },
+  vmax:    { l: "Velocità max", f: a => { const q = a.map(x => x.vmax).filter(Number.isFinite); return q.length ? Math.max(...q) * 3.6 : null; },
+             fmt: v => [nf0.format(v), "km/h"] },
+};
+
+/* ======================= Stato ======================= */
+let DATA = null, ACTS = [], stato = { sport: "tutto", periodo: "30g" };
+const charts = {};
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} },
+};
+
+/* ======================= Decifratura ======================= */
+const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function decifra(blob, pw) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(pw), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: b64(blob.salt), iterations: blob.iter, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  let buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(blob.iv) }, key, b64(blob.ct));
+  if (blob.gzip) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+async function carica(pw) {
+  const r = await fetch(`data.enc?t=${Date.now()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(r.status === 404 ? "Dati non ancora generati: lancia il workflow su GitHub." : `Errore ${r.status}`);
+  const blob = await r.json();
+  try { return await decifra(blob, pw); }
+  catch { const e = new Error("Password errata."); e.pw = true; throw e; }
+}
+
+/* ======================= Periodi ======================= */
+function finestra(p, rif = new Date()) {
+  const fine = new Date(rif); fine.setHours(23, 59, 59, 999);
+  const ini = new Date(rif); ini.setHours(0, 0, 0, 0);
+  if (p === "7g") ini.setDate(ini.getDate() - 6);
+  else if (p === "30g") ini.setDate(ini.getDate() - 29);
+  else if (p === "12m") ini.setDate(ini.getDate() - 364);
+  else if (p === "anno") ini.setMonth(0, 1);
+  else if (p === "stag") { const y = ini.getMonth() >= 10 ? ini.getFullYear() : ini.getFullYear() - 1; ini.setFullYear(y, 10, 1); }
+  return [ini, fine];
+}
+const annoPrima = d => { const x = new Date(d); x.setFullYear(x.getFullYear() - 1); return x; };
+const inFin = (a, [i, f]) => a.d >= i && a.d <= f;
+const lunedi = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+
+/* ======================= Render ======================= */
+function filtrate() { return stato.sport === "tutto" ? ACTS : ACTS.filter(a => a.sport === stato.sport); }
+
+function renderChips() {
+  const sc = $("sportchips"); sc.innerHTML = "";
+  ["tutto", "corsa", "scialpinismo", "sci", "trekking"].forEach(k => {
+    const b = document.createElement("button"); b.className = "chip"; b.setAttribute("aria-pressed", stato.sport === k);
+    b.innerHTML = (SPORT[k].color ? `<i class="dot" style="background:var(${SPORT[k].color})"></i>` : "") + SPORT[k].label;
+    b.onclick = () => { stato.sport = k; store.set("sport", k); render(); };
+    sc.appendChild(b);
+  });
+  const pc = $("periodchips"); pc.innerHTML = "";
+  Object.entries(PERIODI).forEach(([k, v]) => {
+    const b = document.createElement("button"); b.className = "chip"; b.setAttribute("aria-pressed", stato.periodo === k);
+    b.textContent = v.label; b.onclick = () => { stato.periodo = k; store.set("periodo", k); render(); };
+    pc.appendChild(b);
+  });
+}
+
+function renderKpi() {
+  const base = filtrate(), fin = finestra(stato.periodo);
+  const finP = [annoPrima(fin[0]), annoPrima(fin[1])];
+  const ora = base.filter(a => inFin(a, fin)), prima = base.filter(a => inFin(a, finP));
+  const primaAttivita = ACTS.length ? ACTS[ACTS.length - 1].d : null;
+  const copreAnnoPrec = primaAttivita && primaAttivita <= finP[0];
+  $("periodolbl").textContent = `${fDataLunga.format(fin[0])} – oggi · confronto con lo stesso periodo dell'anno precedente`;
+  $("kpis").innerHTML = SPORT[stato.sport].kpi.map(k => {
+    const m = MET[k], v = m.f(ora);
+    const vp = copreAnnoPrec ? m.f(prima) : null;
+    const [val, u] = v == null ? ["–", ""] : m.fmt(v);
+    let d = "anno prec.: n.d.";
+    if (vp != null && v != null) {
+      if (k === "passo") { const diff = v - vp; d = `${diff <= 0 ? "▲ " : "▼ "}${diff <= 0 ? "−" : "+"}${mmss(Math.abs(diff))} /km vs anno prec.`; }
+      else if (vp > 0) { const p = (v - vp) / vp * 100; d = `${p >= 0 ? "▲ +" : "▼ −"}${nf0.format(Math.abs(p))}% vs anno prec. (${m.fmt(vp).join(" ").trim()})`; }
+      else d = `anno prec.: ${m.fmt(vp).join(" ").trim()}`;
+    } else if (vp != null) d = `anno prec.: ${m.fmt(vp).join(" ").trim()}`;
+    return `<div class="kpi"><div class="l">${m.l}</div><div class="v">${val}<span>${u}</span></div><div class="d">${d}</div>${m.note ? `<div class="d">${m.note}</div>` : ""}</div>`;
+  }).join("");
+}
+
+function baseOpts({ yTitle, reverse = false, stacked = false, tooltipFmt }) {
+  const grid = css("--grid"), muted = css("--muted");
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: c => `${c.dataset.label}: ${tooltipFmt(c.parsed.y)}` },
+                 filter: c => c.parsed.y != null && c.parsed.y !== 0 },
+    },
+    scales: {
+      x: { stacked, grid: { display: false }, ticks: { color: muted, maxRotation: 0, autoSkipPadding: 8, font: { size: 11 } }, border: { color: css("--axis") } },
+      y: { stacked, reverse, beginAtZero: !reverse, grid: { color: grid }, border: { display: false },
+           ticks: { color: muted, font: { size: 11 }, maxTicksLimit: 5, callback: v => tooltipFmt(v, true) },
+           title: { display: !!yTitle, text: yTitle, color: muted, font: { size: 11 } } },
+    },
+  };
+}
+function disegna(id, cfg) {
+  charts[id]?.destroy(); delete charts[id];
+  const box = $(id).parentElement, vuoto = !cfg.data.datasets.some(d => d.data.some(v => v != null && (typeof v === "object" ? v.y : v) > 0));
+  box.querySelector(".vuoto")?.remove();
+  $(id).classList.toggle("hidden", vuoto);
+  if (vuoto) { box.insertAdjacentHTML("beforeend", `<div class="vuoto empty">Nessuna attività in questo intervallo.</div>`); return; }
+  charts[id] = new Chart($(id), cfg);
+}
+function legenda(id, voci) {
+  $(id).innerHTML = voci.length > 1 ? voci.map(([t, c, tratteggio]) =>
+    `<span><i class="dot" style="background:${c};${tratteggio ? "opacity:.45" : ""}"></i>${t}</span>`).join("") : "";
+}
+function barStyle(col) {
+  return { backgroundColor: col, borderColor: css("--surface"), borderWidth: { top: 2 }, borderSkipped: "bottom",
+           borderRadius: { topLeft: 4, topRight: 4 }, maxBarThickness: 22 };
+}
+function asseMetrica(k) {
+  const m = MET[k];
+  if (k === "ore") return { conv: v => v / 3600, fmt: (v, tick) => tick ? `${nf0.format(v)} h` : hm(v * 3600), titolo: "ore" };
+  if (k === "km") return { conv: v => v, fmt: v => `${kmFmt(v)} km`, titolo: "km" };
+  return { conv: v => v, fmt: v => `${nf0.format(v)} m`, titolo: "metri" };
+}
+
+function renderSettimane() {
+  const sp = stato.sport, k = SPORT[sp].main, ax = asseMetrica(k);
+  const N = 16, l0 = lunedi(new Date()); const sett = [];
+  for (let i = N - 1; i >= 0; i--) { const s = new Date(l0); s.setDate(s.getDate() - 7 * i); sett.push(s); }
+  const etich = sett.map(s => `${s.getDate()} ${MESI[s.getMonth()]}`);
+  const perSett = (arr) => sett.map(s => { const e = new Date(s); e.setDate(e.getDate() + 7);
+    return ax.conv(MET[k].f(arr.filter(a => a.d >= s && a.d < e)) || 0); });
+  const famiglie = sp === "tutto" ? FAMIGLIE.filter(f => ACTS.some(a => a.sport === f)) : [sp];
+  const ds = famiglie.map(f => ({ label: SPORT[f].label, data: perSett(ACTS.filter(a => a.sport === f)), ...barStyle(css(SPORT[f].color)) }));
+  $("c1t").textContent = `${MET[k].l} per settimana`;
+  $("c1s").textContent = `Ultime ${N} settimane (da lunedì)`;
+  legenda("c1l", ds.map(d => [d.label, d.backgroundColor]));
+  disegna("c1", { type: "bar", data: { labels: etich, datasets: ds }, options: baseOpts({ stacked: true, tooltipFmt: ax.fmt }) });
+}
+
+function renderMesi() {
+  const sp = stato.sport, k = SPORT[sp].main, ax = asseMetrica(k);
+  const invernale = sp === "sci" || sp === "scialpinismo";
+  const oggi = new Date();
+  // anno di riferimento: solare (gen–dic) oppure stagione (nov–ott)
+  const y0 = invernale ? (oggi.getMonth() >= 10 ? oggi.getFullYear() : oggi.getFullYear() - 1) : oggi.getFullYear();
+  const mesi = invernale ? [10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9] : [...Array(12).keys()];
+  const serie = (yBase) => mesi.map(m => {
+    const y = invernale && m < 10 ? yBase + 1 : yBase;
+    const ini = new Date(y, m, 1), fin = new Date(y, m + 1, 1);
+    if (ini > oggi) return null;
+    return ax.conv(MET[k].f(filtrate().filter(a => a.d >= ini && a.d < fin)) || 0);
+  });
+  const col = css(SPORT[sp].color || "--s1");
+  const etAnno = y => invernale ? `${y}/${String(y + 1).slice(2)}` : `${y}`;
+  const ds = [
+    { label: etAnno(y0), data: serie(y0), ...barStyle(col) },
+    { label: etAnno(y0 - 1), data: serie(y0 - 1), ...barStyle(col + "73") },
+  ];
+  $("c2t").textContent = `${MET[k].l} mese per mese`;
+  $("c2s").textContent = invernale ? "Stagione in corso vs stagione precedente (nov–ott)" : "Anno in corso vs anno precedente";
+  legenda("c2l", [[ds[0].label, col], [ds[1].label, col, true]]);
+  disegna("c2", { type: "bar", data: { labels: mesi.map(m => MESI[m]), datasets: ds }, options: baseOpts({ tooltipFmt: ax.fmt }) });
+}
+
+function renderTrend() {
+  const sp = stato.sport, card = $("c3card");
+  const lim = new Date(); lim.setDate(lim.getDate() - 365);
+  let cfg = null;
+  if (sp === "corsa") {
+    const pts = ACTS.filter(a => a.sport === "corsa" && a.d >= lim && a.dist >= 3000 && a.mov > 0).reverse()
+      .map(a => ({ x: a.d.getTime(), y: a.mov / (a.dist / 1000), n: a.nome }));
+    cfg = { t: "Passo per uscita", s: "Ultimi 12 mesi, uscite ≥ 3 km · più in alto = più veloce", pts, reverse: true,
+            fmt: v => `${mmss(v)} /km`, col: css("--s1"), label: "Passo" };
+  } else if (sp === "scialpinismo") {
+    const pts = ACTS.filter(a => a.sport === "scialpinismo" && a.d >= lim && a.dplus > 0 && a.mov > 0).reverse()
+      .map(a => ({ x: a.d.getTime(), y: a.dplus / (a.mov / 3600), n: a.nome }));
+    cfg = { t: "D+ per ora, per uscita", s: "Ultimi 12 mesi · tempo in movimento, discesa inclusa", pts,
+            fmt: v => `${nf0.format(v)} m/h`, col: css("--s2"), label: "D+/h" };
+  } else if (sp === "tutto" && DATA.hrv?.some(h => h.notte)) {
+    const lim90 = new Date(); lim90.setDate(lim90.getDate() - 90);
+    const h = DATA.hrv.filter(x => new Date(x.data) >= lim90);
+    card.classList.remove("hidden");
+    $("c3t").textContent = "HRV notturna"; $("c3s").textContent = "Ultimi 90 giorni, millisecondi";
+    legenda("c3l", [["Notte", css("--s1")], ["Media 7 giorni", css("--s2")]]);
+    const o = baseOpts({ tooltipFmt: v => `${nf0.format(v)} ms` }); o.scales.y.beginAtZero = false;
+    o.scales.x.type = "category";
+    disegna("c3", { type: "line", data: { labels: h.map(x => { const d = new Date(x.data); return `${d.getDate()} ${MESI[d.getMonth()]}`; }),
+      datasets: [
+        { label: "Notte", data: h.map(x => x.notte), borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
+        { label: "Media 7 giorni", data: h.map(x => x.sett), borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
+      ] }, options: o });
+    return;
+  }
+  if (!cfg || cfg.pts.length < 2) { card.classList.add("hidden"); charts.c3?.destroy(); delete charts.c3; return; }
+  card.classList.remove("hidden");
+  $("c3t").textContent = cfg.t; $("c3s").textContent = cfg.s; legenda("c3l", []);
+  // media mobile su 5 uscite per leggere la tendenza
+  const mm = cfg.pts.map((p, i, arr) => { const w = arr.slice(Math.max(0, i - 4), i + 1); return { x: p.x, y: w.reduce((s, q) => s + q.y, 0) / w.length }; });
+  const o = baseOpts({ reverse: cfg.reverse, tooltipFmt: cfg.fmt });
+  o.scales.y.beginAtZero = false;
+  o.interaction = { mode: "nearest", intersect: false };
+  o.scales.x = { type: "linear", grid: { display: false }, border: { color: css("--axis") },
+    ticks: { color: css("--muted"), maxTicksLimit: 6, font: { size: 11 }, callback: v => { const d = new Date(v); return `${MESI[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; } } };
+  o.plugins.tooltip.callbacks = {
+    title: c => fDataBreve.format(new Date(c[0].parsed.x)),
+    label: c => c.datasetIndex === 0 ? `${cfg.pts[c.dataIndex].n}: ${cfg.fmt(c.parsed.y)}` : `Media 5 uscite: ${cfg.fmt(c.parsed.y)}`,
+  };
+  legenda("c3l", [["Singola uscita", cfg.col, true], ["Media ultime 5", cfg.col]]);
+  disegna("c3", { type: "line", data: { datasets: [
+    { label: cfg.label, data: cfg.pts, showLine: false, pointRadius: 4, pointHoverRadius: 6, backgroundColor: cfg.col + "73", borderColor: css("--surface"), borderWidth: 1 },
+    { label: "Media", data: mm, borderColor: cfg.col, borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, tension: .3 },
+  ] }, options: o });
+}
+
+function renderRecord() {
+  const sp = stato.sport, a = filtrate(), el = $("rec");
+  const top = (arr, f) => arr.reduce((b, x) => (f(x) != null && (b == null || f(x) > f(b))) ? x : b, null);
+  const riga = (t, x, v) => x ? `<div><span>${t}<small>${x.nome || ""} · ${fDataLunga.format(x.d)}</small></span><b>${v}</b></div>` : "";
+  let r = [];
+  const lunga = top(a.filter(x => x.sport !== "sci"), x => x.dist), dmax = top(a, x => x.dplus), qmax = top(a, x => x.qmax);
+  if (sp === "corsa") {
+    const veloce = top(a.filter(x => x.dist >= 5000 && x.mov), x => -x.mov / x.dist);
+    r = [riga("Uscita più lunga", lunga, lunga && `${kmFmt(lunga.dist / 1000)} km`),
+         riga("Passo migliore (≥ 5 km)", veloce, veloce && `${mmss(veloce.mov / (veloce.dist / 1000))} /km`),
+         riga("Dislivello massimo", dmax, dmax && `${nf0.format(dmax.dplus)} m`)];
+  } else if (sp === "sci") {
+    const giorni = {}; a.forEach(x => { const g = x.inizio.slice(0, 10); (giorni[g] ||= { d: x.d, nome: x.luogo || x.nome, dminus: 0 }).dminus += x.dminus || 0; });
+    const gmax = top(Object.values(giorni), x => x.dminus), vm = top(a, x => x.vmax);
+    r = [riga("Giornata con più dislivello", gmax, gmax && `${nf0.format(gmax.dminus)} m`),
+         riga("Velocità massima", vm, vm && `${nf0.format(vm.vmax * 3.6)} km/h`)];
+  } else {
+    r = [riga("Dislivello massimo", dmax, dmax && `${nf0.format(dmax.dplus)} m`),
+         riga("Quota più alta", qmax, qmax && `${nf0.format(qmax.qmax)} m`),
+         riga("Uscita più lunga", lunga, lunga && `${kmFmt(lunga.dist / 1000)} km`)];
+  }
+  el.innerHTML = r.join("") || `<div class="empty">Nessun dato.</div>`;
+}
+
+function renderLista() {
+  const a = filtrate().slice(0, 20);
+  $("list").innerHTML = a.length ? a.map(x => {
+    const parti = [];
+    if (x.dist) parti.push(`${kmFmt(x.dist / 1000)} km`);
+    if (x.durata) parti.push(hm(x.durata));
+    if (x.sport === "sci") { if (x.dminus) parti.push(`D− ${nf0.format(x.dminus)} m`); }
+    else if (x.dplus) parti.push(`D+ ${nf0.format(x.dplus)} m`);
+    if (x.sport === "corsa" && x.dist && x.mov) parti.push(`${mmss(x.mov / (x.dist / 1000))} /km`);
+    if (x.sport === "scialpinismo" && x.dplus && x.mov) parti.push(`${nf0.format(x.dplus / (x.mov / 3600))} m/h`);
+    if (x.fc) parti.push(`♥ ${nf0.format(x.fc)}`);
+    const nome = (x.nome || SPORT[x.sport].label).replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+    return `<div class="att"><i class="dot" style="background:var(${SPORT[x.sport].color})"></i>
+      <div class="n">${nome}</div><div class="t">${fDataBreve.format(x.d)}</div><div class="m">${parti.join(" · ")}</div></div>`;
+  }).join("") : `<div class="empty">Nessuna attività.</div>`;
+}
+
+function render() {
+  if (!DATA) return;
+  renderChips(); renderKpi(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); renderLista();
+}
+
+/* ======================= Avvio ======================= */
+let ultimoCaricamento = 0;
+async function apri(pw, ricorda) {
+  DATA = await carica(pw);
+  ACTS = (DATA.attivita || []).map(a => ({ ...a, d: new Date(a.inizio.replace(" ", "T")) }));
+  ultimoCaricamento = Date.now();
+  if (ricorda) store.set("pw", pw);
+  try { sessionStorage.setItem("pw", pw); } catch {}
+  $("agg").textContent = DATA.aggiornato ? `Dati al ${new Date(DATA.aggiornato).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : "";
+  $("lock").classList.add("hidden"); $("app").classList.remove("hidden");
+  render();
+}
+const pwCorrente = () => store.get("pw") || (() => { try { return sessionStorage.getItem("pw"); } catch { return null; } })();
+
+$("lockform").addEventListener("submit", async e => {
+  e.preventDefault(); $("lockerr").textContent = ""; $("unlockbtn").disabled = true; $("unlockbtn").textContent = "Sblocco…";
+  try { await apri($("pw").value, $("remember").checked); }
+  catch (err) { $("lockerr").textContent = err.message; }
+  finally { $("unlockbtn").disabled = false; $("unlockbtn").textContent = "Sblocca"; }
+});
+$("reload").onclick = async () => { const pw = pwCorrente(); if (pw) { try { await apri(pw, !!store.get("pw")); } catch (e) { alertNoBlock(e.message); } } };
+$("logout").onclick = () => { store.del("pw"); try { sessionStorage.removeItem("pw"); } catch {} location.reload(); };
+function alertNoBlock(msg) { $("agg").textContent = msg; }
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && DATA && Date.now() - ultimoCaricamento > 10 * 60 * 1000) $("reload").click();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => render());
+
+stato.sport = SPORT[store.get("sport")] ? store.get("sport") : "tutto";
+stato.periodo = PERIODI[store.get("periodo")] ? store.get("periodo") : "30g";
+(async () => {
+  const pw = pwCorrente();
+  if (pw) { try { await apri(pw, !!store.get("pw")); } catch (e) { $("lockerr").textContent = e.message; if (e.pw) store.del("pw"); } }
+})();
+</script>
+</body>
+</html>
