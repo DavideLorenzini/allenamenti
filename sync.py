@@ -351,13 +351,15 @@ def main() -> None:
         tracce = aggiorna_tracce(client, attivita, prec_tracce)
 
     abb = leggi_precedente(password, ABBINAMENTI_FILE) or {}
-    percorsi = perc.riconosci_percorsi(attivita, tracce["tracce"], abb)
+    percorsi, catturate = perc.riconosci(attivita, tracce["tracce"], abb)
+    percorsi, catturate, da_classificare = perc.classifica(attivita, tracce["tracce"], percorsi, abb, catturate)
     con_traccia = set(tracce["tracce"])
     for a in attivita:
         a["gps"] = str(a["id"]) in con_traccia
 
     cambiati = []
-    if scrivi_se_cambiato(OUT_FILE, {"attivita": attivita, "hrv": hrv, "percorsi": percorsi,
+    if scrivi_se_cambiato(OUT_FILE, {"attivita": attivita, "hrv": hrv, "percorsi": percorsi, "catturate": catturate,
+                                     "da_classificare": da_classificare,
                                      "sonno": sonno, "sonno_diag": sonno_diag}, prec, password):
         cambiati.append("data.enc")
     if scrivi_se_cambiato(TRACCE_FILE, tracce, prec_tracce, password):

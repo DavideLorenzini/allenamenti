@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 import math
 import zipfile
+from datetime import date, timedelta
 
 import fitdecode
 
@@ -190,11 +191,18 @@ def normalizza_abbinamenti(abb: dict | None) -> dict:
 
 
 def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict | None = None) -> list[dict]:
+    return riconosci(attivita, tracce, abb)[0]
+
+
+def riconosci(attivita: list[dict], tracce: dict[str, list], abb: dict | None = None) -> tuple[list[dict], dict]:
     """
     1) raggruppa in automatico le uscite con tracciato uguale (escluse quelle spostate a mano);
     2) unisce i gruppi che condividono una chiave: ancora dell'app (rinomina/unisci) o #nome in Garmin;
     3) aggiunge le uscite spostate a mano nel gruppo scelto (abb["assegna"]);
-    4) toglie le uscite escluse (abb["escludi"] o "#escludi").
+    4) toglie le uscite escluse (abb["escludi"] o "#escludi");
+    5) le NUOVE uscite (successive alla creazione del percorso) con tracciato uguale a una delle
+       uscite messe a mano in un percorso vengono abbinate lì in automatico ("catturate").
+    Restituisce (percorsi, catturate {id attività: chiave gruppo}).
     """
     abb = normalizza_abbinamenti(abb)
     ancore, assegna, nomi_app = abb["ancore"], abb["assegna"], {k: (g or {}).get("nome") for k, g in abb["gruppi"].items()}
@@ -205,7 +213,9 @@ def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict 
         sid = str(a["id"])
         manuale = _nome_manuale(a.get("nome", ""))
         if sid in assegna:
-            cand.append({**a, "_chiave": f"app:{assegna[sid]}", "_app": assegna[sid], "_manuale": None, "_firma": None, "_spostata": True})
+            pts = tracce.get(sid)
+            cand.append({**a, "_chiave": f"app:{assegna[sid]}", "_app": assegna[sid], "_manuale": None, "_firma": None,
+                         "_firma_m": _firma(pts) if pts and len(pts) >= 10 else None, "_spostata": True})
             continue
         if sid in escludi or (manuale and manuale.lower().startswith("escludi")):
             continue
@@ -216,6 +226,24 @@ def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict 
         pts = tracce.get(sid)
         cand.append({**a, "_chiave": chiave, "_app": k_anc, "_manuale": None if k_anc else manuale,
                      "_firma": _firma(pts) if pts and len(pts) >= 10 else None, "_spostata": False})
+
+    # 5) cattura delle nuove uscite nei percorsi composti a mano
+    modelli: dict[str, list[dict]] = {}
+    for a in cand:
+        if a["_spostata"]:
+            modelli.setdefault(a["_app"], []).append(a)
+    dal = {}
+    for k, membri in modelli.items():
+        dal[k] = (abb["gruppi"].get(k) or {}).get("dal") or max(m["inizio"] for m in membri)
+    catturate: dict[str, str] = {}
+    for a in cand:
+        if a["_spostata"] or a["_app"] or a["_manuale"] or not a["_firma"]:
+            continue
+        for k, membri in modelli.items():
+            if a["inizio"] > dal[k] and any(m["_firma_m"] and _uguali(a, {**m, "_firma": m["_firma_m"]}) for m in membri):
+                a.update(_chiave=f"app:{k}", _app=k, _spostata=True)
+                catturate[str(a["id"])] = k
+                break
 
     # 1) gruppi automatici (le uscite spostate a mano restano singole)
     gruppi: list[list[dict]] = []
@@ -264,10 +292,93 @@ def riconosci_percorsi(attivita: list[dict], tracce: dict[str, list], abb: dict 
             nome = f"{rif.get('luogo') or 'Percorso'} · {km:.1f} km".replace(".", ",")
         percorsi.append({
             "id": rif["id"], "nome": nome, "manuale": bool(chiavi_app or nomi_hash), "sport": rif["sport"],
-            "rif": rif["id"], "attivita": [m["id"] for m in membri],
+            "rif": rif["id"], "attivita": [m["id"] for m in membri], "chiave": chiavi_app[0] if chiavi_app else None,
         })
     percorsi.sort(key=lambda p: (-len(p["attivita"]), p["nome"]))
-    return percorsi
+    return percorsi, catturate
+
+
+GIORNI_DA_CLASSIFICARE = 14
+MEMBRI_CONFRONTO = 25
+
+
+def classifica(attivita: list[dict], tracce: dict[str, list], percorsi: list[dict], abb: dict | None,
+               catturate: dict, oggi: date | None = None) -> tuple[list[dict], dict, list[dict]]:
+    """
+    Solo corsa. Per ogni uscita non ancora in un percorso "tuo" (cluster):
+      - se il tracciato è uguale (tolleranze standard) a quello di un solo cluster → abbinata in automatico;
+      - altrimenti, se è recente (ultimi GIORNI_DA_CLASSIFICARE giorni) → va in "da classificare",
+        con il suggerimento del cluster più simile ("simile_a" = id di un'uscita di quel cluster).
+    Le scelte esplicite (spostate, escluse, #nome, ancore) non vengono mai toccate.
+    """
+    abb = normalizza_abbinamenti(abb)
+    escludi, assegna, ancore = set(abb["escludi"]), abb["assegna"], abb["ancore"]
+    byid = {a["id"]: a for a in attivita}
+    cache: dict = {}
+    def F(i):
+        if i not in cache:
+            pts = tracce.get(str(i))
+            cache[i] = _firma(pts) if pts and len(pts) >= 10 else None
+        return cache[i]
+
+    clusters = [p for p in percorsi if p["sport"] == "corsa" and p["manuale"]]
+    in_cluster = {i for p in clusters for i in p["attivita"]}
+    limite = ((oggi or date.today()) - timedelta(days=GIORNI_DA_CLASSIFICARE)).isoformat()
+    da_classificare = []
+
+    for a in sorted(attivita, key=lambda x: x["inizio"]):
+        sid = str(a["id"])
+        if a["sport"] != "corsa" or a["id"] in in_cluster or sid in escludi or sid in assegna or sid in ancore \
+                or _nome_manuale(a.get("nome", "")):
+            continue
+        fa = F(a["id"])
+        if not fa:
+            continue
+        recente = a["inizio"][:10] >= limite
+        aa = {**a, "_firma": fa}
+        uguali, migliore = [], None
+        for p in clusters:
+            dal = (abb["gruppi"].get(p["chiave"] or "") or {}).get("dal")
+            if not recente and not (dal and a["inizio"] > dal):
+                continue
+            membri = [m for m in p["attivita"] if m != a["id"] and F(m)][-MEMBRI_CONFRONTO:]
+            if any(_uguali(aa, {**byid[m], "_firma": F(m)}) for m in membri if m in byid):
+                uguali.append(p)
+            for m in membri:
+                if m not in byid:
+                    continue
+                fm, dm, da_ = F(m), byid[m].get("dist") or 0, a.get("dist") or 0
+                media = sum(haversine(*x, *y) for x, y in zip(fa, fm)) / len(fa)
+                scarto = abs(da_ - dm) / max(da_, dm) if da_ and dm else 1
+                punteggio = media + scarto * 2000            # metri "equivalenti"
+                if migliore is None or punteggio < migliore[0]:
+                    migliore = (punteggio, m, media)
+        if len(uguali) == 1 and uguali[0]["chiave"]:
+            p = uguali[0]
+            for q in percorsi:                               # la tolgo dal gruppo automatico in cui era
+                if a["id"] in q["attivita"]:
+                    q["attivita"].remove(a["id"])
+            p["attivita"].append(a["id"])
+            p["attivita"].sort(key=lambda i: byid[i]["inizio"])
+            catturate[sid] = p["chiave"]
+            in_cluster.add(a["id"])
+        elif recente:
+            da_classificare.append({
+                "id": a["id"],
+                "simile_a": migliore[1] if migliore and migliore[2] < 1500 else None,
+                "distanza_m": round(migliore[2]) if migliore else None,
+            })
+
+    # pulizia: gruppi automatici rimasti con meno di 2 uscite; riferimento sempre valido
+    out = []
+    for p in percorsi:
+        if not p["attivita"] or (len(p["attivita"]) < 2 and not p["manuale"]):
+            continue
+        if p["rif"] not in p["attivita"]:
+            p["rif"] = p["id"] = p["attivita"][0]
+        out.append(p)
+    out.sort(key=lambda p: (-len(p["attivita"]), p["nome"]))
+    return out, catturate, da_classificare
 
 
 def da_scaricare(a: dict) -> bool:
