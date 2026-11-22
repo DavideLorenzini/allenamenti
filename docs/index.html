@@ -237,7 +237,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <div class="chartbox"><canvas id="pc1"></canvas></div>
     </section>
     <section class="card">
-      <h2>Percorsi ricorrenti</h2>
+      <div class="top" style="margin:0"><h2>Percorsi ricorrenti</h2><button class="pill" id="nuovoperc">+ Nuovo</button></div>
       <p class="sub" id="percsub"></p>
       <div class="list" id="perclist"></div>
     </section>
@@ -687,7 +687,9 @@ async function apriAttivita(id) {
     percHtml = `<section class="card"><h2>Percorso ricorrente</h2>
       <p class="sub">${n}ª ripetizione su ${rip.length}${pos ? ` · ${pos}° tempo su ${ord.length}` : ""}</p>
       <button class="link" data-perc="${p.id}">${esc(p.nome)} →</button>
-      <div class="azioni"><button class="pill" data-azatt="togli">Togli da questo percorso</button></div></section>`;
+      <div class="azioni"><button class="pill" data-azatt="aggiungi-a">Sposta in un altro percorso…</button>
+        <button class="pill" data-azatt="crea">Nuovo percorso con questa uscita</button>
+        <button class="pill" data-azatt="togli">Togli dal percorso</button></div></section>`;
   } else {
     percHtml = `<section class="card"><h2>Percorsi</h2><p class="sub">Questa uscita non fa parte di nessun percorso</p>
       <div class="azioni"><button class="pill" data-azatt="aggiungi-a">Aggiungi a un percorso…</button>
@@ -918,7 +920,7 @@ async function apriPercorso(pid) {
 }
 
 /* ======================= Modifica percorsi dall'app (salvataggio su GitHub) ======================= */
-let ABB = { v: 1, gruppi: {}, assegna: {}, escludi: [] }, ABB_SHA = null, PERC_BASE = [], ABB_ERR = null;
+let ABB = { v: 2, gruppi: {}, ancore: {}, assegna: {}, escludi: [] }, ABB_SHA = null, PERC_BASE = [], ABB_ERR = null;
 const ABB_PATH = "docs/abbinamenti.enc";
 const GH = {
   get token() { return store.get("gh_token"); },
@@ -943,7 +945,14 @@ async function cifraJson(obj, pw) {
   const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, gz);
   return { v: 1, kdf: "PBKDF2-SHA256", iter, gzip: true, salt: b64daBytes(salt), iv: b64daBytes(iv), ct: b64daBytes(new Uint8Array(ct)) };
 }
-const abbVuoto = () => ({ v: 1, gruppi: {}, assegna: {}, escludi: [] });
+const abbVuoto = () => ({ v: 2, gruppi: {}, ancore: {}, assegna: {}, escludi: [] });
+// v1: ogni assegnazione era un'"ancora" (rappresenta il suo gruppo automatico)
+function normalizzaAbb(a) {
+  a = a || abbVuoto();
+  if ((a.v || 1) < 2) a = { v: 2, gruppi: a.gruppi || {}, ancore: a.assegna || {}, assegna: {}, escludi: a.escludi || [] };
+  a.gruppi ||= {}; a.ancore ||= {}; a.assegna ||= {}; a.escludi ||= [];
+  return a;
+}
 
 async function caricaAbbinamenti() {
   ABB_ERR = null; ABB_SHA = null;
@@ -959,15 +968,14 @@ async function caricaAbbinamenti() {
       const r = await fetch(`abbinamenti.enc?t=${Date.now()}`, { cache: "no-store" });
       if (r.ok) blob = await r.json();
     }
-    ABB = blob ? await decifra(blob, PW) : abbVuoto();
+    ABB = normalizzaAbb(blob ? await decifra(blob, PW) : null);
   } catch (e) { ABB_ERR = ABB_ERR || "Impossibile leggere le modifiche ai percorsi."; ABB = abbVuoto(); }
-  ABB.gruppi ||= {}; ABB.assegna ||= {}; ABB.escludi ||= [];
 }
 
 async function salvaAbbinamenti(messaggio) {
   if (!GH.token) throw new Error("Collega GitHub per salvare le modifiche.");
   // tiene solo i gruppi ancora usati
-  const usati = new Set(Object.values(ABB.assegna));
+  const usati = new Set([...Object.values(ABB.assegna), ...Object.values(ABB.ancore)]);
   Object.keys(ABB.gruppi).forEach(k => { if (!usati.has(k)) delete ABB.gruppi[k]; });
   const contenuto = b64daBytes(new TextEncoder().encode(JSON.stringify(await cifraJson(ABB, PW))));
   for (let tentativo = 0; tentativo < 2; tentativo++) {
@@ -987,25 +995,28 @@ async function salvaAbbinamenti(messaggio) {
 /* --- ricalcolo dei percorsi applicando le modifiche (stessa logica di percorsi.py) --- */
 function nomeAuto(a) { return `${a?.luogo || "Percorso"} · ${kmFmt((a?.dist || 0) / 1000)} km`; }
 function ricalcolaPercorsi() {
-  const ass = ABB.assegna, esc = new Set(ABB.escludi.map(String));
-  const gr = PERC_BASE.map(p => ({ base: p, membri: p.attivita.filter(id => ACT_BY_ID.has(id) && (!esc.has(String(id)) || ass[id])) }));
-  const presenti = new Set(gr.flatMap(g => g.membri));
-  Object.keys(ass).forEach(s => { const id = Number(s); if (ACT_BY_ID.has(id) && !presenti.has(id)) gr.push({ base: null, membri: [id] }); });
+  const anc = ABB.ancore, ass = ABB.assegna, esc = new Set(ABB.escludi.map(String));
+  // gruppi calcolati dallo script, senza le uscite spostate a mano o escluse
+  const gr = PERC_BASE.map(p => ({ base: p, membri: p.attivita.filter(id => ACT_BY_ID.has(id) && !ass[id] && !esc.has(String(id))) }));
+  // ogni uscita spostata a mano è un gruppo a sé con la sua chiave
+  Object.keys(ass).forEach(s => { const id = Number(s); if (ACT_BY_ID.has(id)) gr.push({ base: null, membri: [id], chiave: ass[s] }); });
+  const chiaviDi = g => g.chiave ? [g.chiave] : g.membri.map(id => anc[id]).filter(Boolean);
   const padre = gr.map((_, i) => i);
   const rad = i => { while (padre[i] !== i) i = padre[i] = padre[padre[i]]; return i; };
   const primo = {};
-  gr.forEach((g, i) => g.membri.forEach(id => { const k = ass[id]; if (!k) return; if (k in primo) padre[rad(i)] = rad(primo[k]); else primo[k] = i; }));
+  gr.forEach((g, i) => chiaviDi(g).forEach(k => { if (k in primo) padre[rad(i)] = rad(primo[k]); else primo[k] = i; }));
   const uniti = new Map();
   gr.forEach((g, i) => { const r = rad(i); if (!uniti.has(r)) uniti.set(r, []); uniti.get(r).push(g); });
   PERC = [];
   uniti.forEach(gs => {
     const membri = [...new Set(gs.flatMap(g => g.membri))].sort((x, y) => ACT_BY_ID.get(x).d - ACT_BY_ID.get(y).d);
     if (!membri.length) return;
-    const chiavi = membri.map(id => ass[id]).filter(Boolean);
-    const basi = gs.map(g => g.base).filter(Boolean).sort((x, y) => y.attivita.length - x.attivita.length);
+    const chiavi = gs.flatMap(chiaviDi);
+    const basi = gs.map(g => g.base).filter(Boolean).filter(b => b.attivita.some(id => membri.includes(id)))
+      .sort((x, y) => y.attivita.length - x.attivita.length);
     const b0 = basi[0];
     if (membri.length < 2 && !chiavi.length && !b0?.manuale) return;
-    const rif = b0 && membri.includes(b0.rif) ? b0.rif : membri[0];
+    const rif = b0 && membri.includes(b0.rif) && !ass[b0.rif] ? b0.rif : (membri.find(id => !ass[id]) ?? membri[0]);
     const nome = chiavi.map(k => ABB.gruppi[k]?.nome).find(Boolean) || b0?.nome || nomeAuto(ACT_BY_ID.get(rif));
     PERC.push({ id: rif, rif, nome, manuale: !!(chiavi.length || b0?.manuale), sport: ACT_BY_ID.get(rif).sport, attivita: membri });
   });
@@ -1016,29 +1027,42 @@ function ricalcolaPercorsi() {
 /* --- operazioni --- */
 const nuovaChiave = () => "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const togliEsclusione = id => { ABB.escludi = ABB.escludi.filter(x => String(x) !== String(id)); };
+// se l'uscita "rappresentava" il suo gruppo, passa il ruolo a un'altra uscita dello stesso gruppo
+function liberaAncora(id) {
+  const k = ABB.ancore[id]; if (!k) return;
+  delete ABB.ancore[id];
+  const p = PERC_DI.get(id);
+  const alt = p?.attivita.find(x => x !== id && !ABB.assegna[x] && !ABB.ancore[x]);
+  if (alt != null) ABB.ancore[alt] = k;
+}
 function chiaveDi(p) {
-  const k = p.attivita.map(id => ABB.assegna[id]).find(Boolean);
+  const k = p.attivita.map(id => ABB.ancore[id] || ABB.assegna[id]).find(Boolean);
   if (k) return k;
-  const nk = nuovaChiave(); ABB.gruppi[nk] = { nome: p.nome }; ABB.assegna[p.rif] = nk; togliEsclusione(p.rif); return nk;
+  const nk = nuovaChiave(); ABB.gruppi[nk] = { nome: p.nome };
+  if (ABB.assegna[p.rif]) ABB.assegna[p.rif] = nk; else ABB.ancore[p.rif] = nk;
+  togliEsclusione(p.rif); return nk;
+}
+function sposta(id, k) {                 // mette una singola uscita nel gruppo k
+  liberaAncora(id); ABB.assegna[id] = k; togliEsclusione(id);
 }
 const OP = {
   rinomina(p, nome) {
-    const chiavi = [...new Set(p.attivita.map(id => ABB.assegna[id]).filter(Boolean))];
+    const chiavi = [...new Set(p.attivita.map(id => ABB.ancore[id] || ABB.assegna[id]).filter(Boolean))];
     (chiavi.length ? chiavi : [chiaveDi(p)]).forEach(k => { ABB.gruppi[k] = { ...(ABB.gruppi[k] || {}), nome }; });
   },
-  unisci(da, verso) {
+  unisci(da, verso) {                    // tutto il percorso "da" confluisce in "verso"
     const k = chiaveDi(verso), nome = ABB.gruppi[k]?.nome || verso.nome;
-    da.attivita.forEach(id => { if (ABB.assegna[id]) ABB.assegna[id] = k; });
-    ABB.assegna[da.rif] = k; togliEsclusione(da.rif);
+    da.attivita.forEach(id => { if (ABB.ancore[id]) ABB.ancore[id] = k; if (ABB.assegna[id]) ABB.assegna[id] = k; });
+    if (!ABB.ancore[da.rif] && !ABB.assegna[da.rif]) ABB.ancore[da.rif] = k;
+    togliEsclusione(da.rif);
     ABB.gruppi[k] = { nome };
   },
-  aggiungi(id, p) { const k = chiaveDi(p); ABB.assegna[id] = k; togliEsclusione(id); },
+  aggiungi(id, p) { sposta(id, chiaveDi(p)); },
   togli(id, p) {
-    const k = ABB.assegna[id]; delete ABB.assegna[id];
-    if (k && !p.attivita.some(x => x !== id && ABB.assegna[x] === k)) { const alt = p.attivita.find(x => x !== id); if (alt != null) ABB.assegna[alt] = k; }
+    liberaAncora(id); delete ABB.assegna[id];
     if (!ABB.escludi.some(x => String(x) === String(id))) ABB.escludi.push(id);
   },
-  crea(id, nome) { const k = nuovaChiave(); ABB.gruppi[k] = { nome }; ABB.assegna[id] = k; togliEsclusione(id); },
+  crea(nome, ids) { const k = nuovaChiave(); ABB.gruppi[k] = { nome }; ids.forEach(id => sposta(id, k)); return k; },
 };
 
 async function modifica(messaggio, operazione, dopo) {
@@ -1119,18 +1143,37 @@ async function togliDaPercorso(id, p) {
   });
 }
 async function azioneAttivita(az, id) {
+  const a = ACT_BY_ID.get(id), attuale = PERC_DI.get(id);
   if (az === "aggiungi-a") {
-    const a = ACT_BY_ID.get(id);
-    const lista = [...PERC].sort((x, y) => (y.sport === a.sport) - (x.sport === a.sport) || y.attivita.length - x.attivita.length);
-    const pid = await scegli("Aggiungi a quale percorso?", lista.map(vocePercorso), "Non ci sono ancora percorsi."); if (!pid) return;
+    const lista = PERC.filter(x => x !== attuale).sort((x, y) => (y.sport === a.sport) - (x.sport === a.sport) || y.attivita.length - x.attivita.length);
+    const pid = await scegli(attuale ? `Sposta in quale percorso?` : "Aggiungi a quale percorso?", lista.map(vocePercorso), "Non ci sono altri percorsi."); if (!pid) return;
     const p = PERC.find(x => String(x.id) === pid);
-    await modifica(`Uscita aggiunta a ${p.nome}`, () => OP.aggiungi(id, p), () => mostraTop());
+    await modifica(`Uscita spostata in ${p.nome}`, () => OP.aggiungi(id, p), () => mostraTop());
   } else if (az === "crea") {
-    const nome = await chiediNome("Nome del nuovo percorso", nomeAuto(ACT_BY_ID.get(id))); if (!nome) return;
-    await modifica(`Nuovo percorso: ${nome}`, () => OP.crea(id, nome), () => mostraTop());
+    const nome = await chiediNome("Nome del nuovo percorso", ""); if (!nome) return;
+    await modifica(`Nuovo percorso: ${nome}`, () => OP.crea(nome, [id]), () => mostraTop());
   } else if (az === "togli") {
-    await togliDaPercorso(id, PERC_DI.get(id));
+    await togliDaPercorso(id, attuale);
   }
+}
+
+// nuovo percorso dalla scheda Percorsi: nome, poi scelta delle uscite (una alla volta, finché non premi Fine)
+async function nuovoPercorso() {
+  if (!GH.token) { vai("gh", 0); return; }
+  const nome = await chiediNome("Nome del nuovo percorso", ""); if (!nome) return;
+  const sport = stato.sport !== "tutto" ? stato.sport : null;
+  const scelte = [];
+  while (true) {
+    const elenco = ACTS.filter(a => !scelte.includes(a.id) && (!sport || a.sport === sport));
+    const id = await scegli(scelte.length ? `“${nome}”: ${scelte.length} uscite scelte. Aggiungine un'altra o premi Fine`
+      : `Scegli la prima uscita di “${nome}”`, [...(scelte.length ? [{ id: "__fine", sport: "", t: "✓ Fine", s: "Crea il percorso con le uscite scelte" }] : []), ...elenco.map(voceAttivita)]);
+    if (!id) { if (!scelte.length) return; break; }
+    if (id === "__fine") break;
+    scelte.push(Number(id));
+  }
+  let k = null;
+  const ok = await modifica(`Nuovo percorso: ${nome}`, () => { k = OP.crea(nome, scelte); });
+  if (ok) { const p = PERC_DI.get(scelte[0]); if (p) vai("perc", p.id); }
 }
 
 /* --- collegamento a GitHub --- */
@@ -1294,6 +1337,7 @@ $("lockform").addEventListener("submit", async e => {
 $("reload").onclick = async () => { const pw = pwCorrente(); if (pw) { try { await apri(pw, !!store.get("pw")); } catch (e) { alertNoBlock(e.message); } } };
 $("tab-pano").onclick = () => { stato.vista = "pano"; render(); window.scrollTo(0, 0); };
 $("tab-perc").onclick = () => { stato.vista = "perc"; render(); window.scrollTo(0, 0); };
+$("nuovoperc").onclick = () => nuovoPercorso();
 $("tab-sonno").onclick = () => { stato.vista = "sonno"; render(); window.scrollTo(0, 0); };
 $("sheetclose").onclick = () => { if (history.state?.scheda) history.back(); else indietro(); };
 window.addEventListener("popstate", () => { if (PILA.length) indietro(); });
