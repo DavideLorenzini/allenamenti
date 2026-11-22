@@ -104,10 +104,13 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .clic { cursor: pointer; }
 .att.clic:active, .route:active { opacity: .6; }
 .att .gps { color: var(--muted); font-size: 11px; font-weight: 400; margin-left: 6px; }
-.route { display: grid; grid-template-columns: 12px 1fr; gap: 2px 10px; padding: 12px 0; border-top: 1px solid var(--grid); cursor: pointer; }
+.route { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 2px 10px; padding: 12px 0; border-top: 1px solid var(--grid); cursor: pointer; }
 .route:first-child { border-top: 0; }
 .route .dot { margin-top: 6px; }
 .route .n { font-weight: 600; }
+.route .spark { grid-column: 2; display: flex; align-items: center; gap: 12px; margin-top: 8px; min-width: 0; }
+.route .spark svg { flex: 1 1 auto; min-width: 0; width: 100%; height: 34px; overflow: visible; }
+.route .trend { flex: 0 0 auto; font-size: 12px; line-height: 1.35; color: var(--ink2); text-align: right; font-variant-numeric: tabular-nums; }
 .route .m { color: var(--ink2); font-size: 13px; grid-column: 2; font-variant-numeric: tabular-nums; }
 .nota { color: var(--ink2); font-size: 13px; margin: 0; }
 .nota code { background: var(--grid); padding: 1px 5px; border-radius: 5px; }
@@ -206,6 +209,13 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   </main>
 
   <main class="wrap hidden" id="view-perc">
+    <section class="card" id="trendcard">
+      <h2>Andamento sui percorsi ricorrenti</h2>
+      <p class="sub">Ogni punto è un'uscita: quanto sei andato più veloce (+) o più lento (−) del tuo tempo abituale su quel percorso · più in alto = più veloce</p>
+      <div class="kpis" id="trendkpi" style="margin-bottom:12px"></div>
+      <div class="legend" id="pc1l"></div>
+      <div class="chartbox"><canvas id="pc1"></canvas></div>
+    </section>
     <section class="card">
       <h2>Percorsi ricorrenti</h2>
       <p class="sub" id="percsub"></p>
@@ -681,12 +691,75 @@ function statPerc(p) {
   return { rip, best, ult: rip.at(-1), rif: ACT_BY_ID.get(p.rif) || rip[0] };
 }
 
+const mediana = a => { const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+const pct = v => `${v > 0 ? "+" : v < 0 ? "−" : ""}${nf1.format(Math.abs(v))}%`;
+
+// mini-grafico dei tempi di un percorso: più in alto = più veloce
+function sparkline(rip, best, col) {
+  const t = rip.map(tempoMov).filter(Boolean);
+  if (t.length < 2) return "";
+  const lo = Math.min(...t), hi = Math.max(...t), W = 200, H = 30;
+  const xy = t.map((v, i) => [t.length === 1 ? W / 2 : i / (t.length - 1) * W, hi === lo ? H / 2 : 3 + (v - lo) / (hi - lo) * (H - 6)]);
+  const ib = rip.filter(tempoMov).findIndex(a => a.id === best?.id);
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${xy.map(p => p.join(",")).join(" ")}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+    ${xy.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="${i === ib ? 3.5 : 2}" fill="${i === ib ? col : css("--surface")}" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`).join("")}
+  </svg>`;
+}
+
 function renderPercorsi() {
   const lista = PERC.filter(p => stato.sport === "tutto" || p.sport === stato.sport);
   const nGps = ACTS.filter(a => a.gps).length;
   $("percsub").textContent = `${lista.length} ${lista.length === 1 ? "percorso" : "percorsi"} · ${nGps} uscite con traccia GPS`;
+
+  // --- grafico d'insieme: scarto dal tempo mediano di ciascun percorso (solo percorsi con almeno 3 uscite)
+  const punti = [];
+  lista.forEach(p => {
+    const rip = statPerc(p).rip.filter(tempoMov);
+    if (rip.length < 3) return;
+    const med = mediana(rip.map(tempoMov));
+    rip.forEach(a => punti.push({ x: a.d.getTime(), y: (med - tempoMov(a)) / med * 100, a, p, med }));
+  });
+  punti.sort((u, v) => u.x - v.x);
+  const card = $("trendcard");
+  if (punti.length >= 4) {
+    card.classList.remove("hidden");
+    const famiglie = FAMIGLIE.filter(f => punti.some(q => q.p.sport === f));
+    const mm = punti.map((q, i) => { const w = punti.slice(Math.max(0, i - 4), i + 1); return { x: q.x, y: w.reduce((t, r) => t + r.y, 0) / w.length }; });
+    // KPI: ultimi 30 giorni contro i 30 precedenti
+    const ora = Date.now(), g = 864e5;
+    const ult30 = punti.filter(q => q.x >= ora - 30 * g), prec30 = punti.filter(q => q.x < ora - 30 * g && q.x >= ora - 60 * g);
+    const m30 = media(ult30.map(q => q.y)), mp = media(prec30.map(q => q.y));
+    const tile = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+    $("trendkpi").innerHTML =
+      tile("Ultimi 30 giorni", m30 == null ? "–" : pct(m30), `${ult30.length} uscite · rispetto al tuo tempo abituale`) +
+      tile("30 giorni precedenti", mp == null ? "–" : pct(mp), `${prec30.length} uscite`);
+    legenda("pc1l", [...famiglie.map(f => [SPORT[f].label, css(SPORT[f].color), true]), ["Media ultime 5 uscite", css("--ink2")]]);
+    const o = baseOpts({ tooltipFmt: v => pct(v) });
+    o.scales.y.beginAtZero = false;
+    o.scales.y.grid.color = c => c.tick?.value === 0 ? css("--axis") : css("--grid");
+    o.interaction = { mode: "nearest", intersect: false };
+    o.scales.x = { type: "linear", grid: { display: false }, border: { color: css("--axis") },
+      ticks: { color: css("--muted"), maxTicksLimit: 6, font: { size: 11 }, callback: v => { const d = new Date(v); return `${MESI[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; } } };
+    const ds = famiglie.map(f => {
+      const pts = punti.filter(q => q.p.sport === f);
+      return { label: SPORT[f].label, data: pts.map(q => ({ x: q.x, y: q.y })), _q: pts, showLine: false,
+        pointRadius: 4, pointHoverRadius: 6, backgroundColor: css(SPORT[f].color) + "99", borderColor: css("--surface"), borderWidth: 1 };
+    });
+    ds.push({ label: "Media", data: mm, borderColor: css("--ink2"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, tension: .3 });
+    o.plugins.tooltip.callbacks = {
+      title: c => fDataBreve.format(new Date(c[0].parsed.x)),
+      label: c => { const q = c.dataset._q?.[c.dataIndex];
+        return q ? [`${q.p.nome}`, `${hms(tempoMov(q.a))} · ${pct(q.y)} rispetto al solito (${hms(q.med)})`] : `Media ultime 5: ${pct(c.parsed.y)}`; },
+    };
+    o.plugins.tooltip.filter = c => c.parsed.y != null;
+    disegna("pc1", { type: "line", data: { datasets: ds }, options: o });
+  } else { card.classList.add("hidden"); charts.pc1?.destroy(); delete charts.pc1; }
+
+  // --- elenco percorsi con mini-grafico
   $("perclist").innerHTML = lista.length ? lista.map(p => {
     const { rip, best, ult, rif } = statPerc(p);
+    const col = css(SPORT[p.sport].color);
     const parti = [`${rip.length} uscite`];
     if (rif?.dist) parti.push(`${kmFmt(rif.dist / 1000)} km`);
     if (rif?.dplus) parti.push(`D+ ${nf0.format(rif.dplus)} m`);
@@ -695,8 +768,18 @@ function renderPercorsi() {
       const d = tempoMov(ult) - tempoMov(best);
       t = `Migliore ${hms(tempoMov(best))} · ultima ${hms(tempoMov(ult))} ${ult.id === best.id ? "(è la migliore)" : `(${segno(d)})`}`;
     }
+    const tt = rip.map(tempoMov).filter(Boolean);
+    let trend = "";
+    if (tt.length >= 4) {
+      const k = Math.min(3, Math.floor(tt.length / 2));
+      const prime = media(tt.slice(0, k)), ultime = media(tt.slice(-k));
+      const v = (prime - ultime) / prime * 100;
+      trend = `<span class="trend">${v >= 0 ? "▲" : "▼"} ${nf1.format(Math.abs(v))}% ${v >= 0 ? "più veloce" : "più lento"}<br>ultime ${k} vs prime ${k}</span>`;
+    }
+    const sp = sparkline(rip, best, col);
     return `<div class="route" data-perc="${p.id}"><i class="dot" style="background:var(${SPORT[p.sport].color})"></i>
-      <div class="n">${esc(p.nome)}</div><div class="m">${parti.join(" · ")}</div>${t ? `<div class="m">${t}</div>` : ""}</div>`;
+      <div class="n">${esc(p.nome)}</div><div class="m">${parti.join(" · ")}</div>${t ? `<div class="m">${t}</div>` : ""}
+      ${sp ? `<div class="spark">${sp}${trend}</div>` : ""}</div>`;
   }).join("") : `<div class="empty">Nessun percorso ricorrente per ora: servono almeno due uscite sullo stesso tracciato con la traccia GPS già scaricata.</div>`;
 }
 
@@ -712,7 +795,7 @@ async function apriPercorso(pid) {
     <p class="sub" style="margin:10px 2px 0">${info.join(" · ")}${p.manuale ? "" : " · riconosciuto in automatico"}</p>
     <div class="mappa" id="mappa"><div class="empty" style="padding:16px">Caricamento traccia…</div></div>
     <div class="legend" id="mapl" style="margin:8px 2px 0"></div>
-    <section class="card"><h2>Tempo in movimento</h2><p class="sub">Una ripetizione per punto · più in basso = più veloce</p>
+    <section class="card"><h2>Tempo in movimento</h2><p class="sub">Una ripetizione per punto · più in alto = più veloce</p>
       <div class="chartbox"><canvas id="s1"></canvas></div></section>
     <section class="card" id="s2card"><h2>${corsa ? "FC media" : "D+ per ora"}</h2>
       <p class="sub">${corsa ? "Sullo stesso percorso, a parità di tempo una FC più bassa indica una forma migliore" : "Metri di dislivello all'ora, tempo in movimento, discesa inclusa"}</p>
@@ -725,7 +808,7 @@ async function apriPercorso(pid) {
   // grafico tempi
   const conT = rip.filter(tempoMov);
   const etich = conT.map(a => fDataRip.format(a.d));
-  const o1 = baseOpts({ tooltipFmt: (v, tick) => hms(v * 60) });
+  const o1 = baseOpts({ reverse: true, tooltipFmt: (v, tick) => hms(v * 60) });
   o1.scales.y.beginAtZero = false;
   o1.plugins.tooltip.callbacks = { label: c => `${nomePulito(conT[c.dataIndex])}: ${hms(c.parsed.y * 60)}${conT[c.dataIndex].id === best?.id ? " · migliore" : ""}` };
   disegna("s1", { type: "line", data: { labels: etich, datasets: [{ label: "Tempo", data: conT.map(a => tempoMov(a) / 60),
