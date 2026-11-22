@@ -170,6 +170,21 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
   background: var(--s1); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
 .iconbtn:disabled { opacity: .5; }
 .azioni.colonna { display: grid; }
+.sm { display: block; width: 56px; height: 56px; }
+.sm svg.mini { width: 56px; height: 56px; background: var(--page); border-radius: 10px; border: 1px solid var(--ring); }
+.badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; margin-left: 4px; vertical-align: middle; }
+.badge.stesso { background: var(--s3); color: #fff; }
+.badge.variante { background: var(--s4); color: #1a1a19; }
+.badge.altro { background: var(--grid); color: var(--ink2); }
+.scelta { grid-template-columns: 12px 1fr 56px !important; }
+.scelta .badge { margin: 4px 0 0; }
+.rip { grid-template-columns: 56px 1fr auto !important; }
+.rip .sm { grid-row: 1 / 3; }
+.rio { display: grid; grid-template-columns: 56px 1fr; gap: 4px 12px; padding: 12px 0; border-top: 1px solid var(--grid); }
+.rio:first-child { border-top: 0; }
+.rio b { display: block; }
+.rio small { display: block; color: var(--ink2); font-size: 13px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.pill.primario { background: var(--s1); border-color: var(--s1); color: #fff; }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
 footer button { background: none; border: 0; color: var(--ink2); text-decoration: underline; padding: 4px; }
 </style>
@@ -246,6 +261,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     <section class="card">
       <div class="top" style="margin:0"><h2>Percorsi ricorrenti</h2><button class="pill" id="nuovoperc">+ Nuovo</button></div>
       <p class="sub" id="percsub"></p>
+      <button class="pill hidden" id="riordinabtn" style="margin-bottom:6px"></button>
       <div class="list" id="perclist"></div>
     </section>
     <section class="card hidden" id="suggcard">
@@ -623,6 +639,7 @@ const fDataRip = new Intl.DateTimeFormat("it-IT", { day: "numeric", month: "shor
 
 async function tracce() {
   if (TRACCE) return TRACCE;
+  FIRME.clear();
   try { TRACCE = (await carica(PW, "tracce.enc")).tracce || {}; }
   catch { TRACCE = {}; }
   return TRACCE;
@@ -635,7 +652,7 @@ function indietro() { PILA.pop(); mostraTop(); }
 function mostraTop() {
   const t = PILA.at(-1);
   if (!t) { chiudiMappa(); $("sheet").classList.add("hidden"); document.body.style.overflow = ""; return; }
-  t.tipo === "att" ? apriAttivita(t.id) : t.tipo === "gh" ? apriGitHub() : t.tipo === "inbox" ? apriInbox() : apriPercorso(t.id);
+  t.tipo === "att" ? apriAttivita(t.id) : t.tipo === "gh" ? apriGitHub() : t.tipo === "inbox" ? apriInbox() : t.tipo === "riordino" ? apriRiordino() : apriPercorso(t.id);
 }
 function chiudiMappa() { if (MAPPA) { MAPPA.remove(); MAPPA = null; } }
 function apriSheet(titolo, html) {
@@ -645,7 +662,7 @@ function apriSheet(titolo, html) {
   $("sheet").classList.remove("hidden"); $("sheet").scrollTop = 0; document.body.style.overflow = "hidden";
 }
 
-function disegnaMappa(el, linee, sport) {
+function disegnaMappa(el, linee, sport, sotto = null) {
   chiudiMappa();
   const strade = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
     { maxZoom: 19, attribution: "© OpenStreetMap" });
@@ -654,6 +671,10 @@ function disegnaMappa(el, linee, sport) {
   MAPPA = L.map(el, { layers: [sport === "corsa" ? strade : topo] });
   L.control.layers({ "Strade": strade, "Topografica": topo }, null, { collapsed: true }).addTo(MAPPA);
   let b = null;
+  if (sotto) {        // percorso di riferimento: grigio tratteggiato, sotto la traccia
+    const pr = L.polyline(sotto.map(p => [p[0], p[1]]), { color: css("--muted"), weight: 7, opacity: .55, dashArray: "8 8" }).addTo(MAPPA);
+    b = pr.getBounds();
+  }
   linee.forEach(({ pts, col, w = 4, op = 1 }) => {
     const pl = L.polyline(pts.map(p => [p[0], p[1]]), { color: col, weight: w, opacity: op }).addTo(MAPPA);
     b = b ? b.extend(pl.getBounds()) : pl.getBounds();
@@ -702,7 +723,7 @@ async function apriAttivita(id) {
     const rip = p.attivita.map(i => ACT_BY_ID.get(i)).filter(Boolean);
     const ord = rip.filter(tempoMov).sort((x, y) => tempoMov(x) - tempoMov(y));
     const pos = ord.findIndex(x => x.id === id) + 1, n = rip.findIndex(x => x.id === id) + 1;
-    percHtml = `<section class="card"><h2>Percorso ricorrente</h2>
+    percHtml = `<section class="card"><h2>Percorso ricorrente <span id="confbadge"></span></h2>
       <p class="sub">${n}ª ripetizione su ${rip.length}${pos ? ` · ${pos}° tempo su ${ord.length}` : ""}</p>
       <button class="link" data-perc="${p.id}">${esc(p.nome)} →</button>
       <div class="azioni"><button class="pill" data-azatt="aggiungi-a">Sposta in un altro percorso…</button>
@@ -729,7 +750,12 @@ async function apriAttivita(id) {
   if (!pts) { $("mappa").outerHTML = `<p class="nota" style="margin-top:12px">Traccia non trovata.</p>`; return; }
   $("mappa").innerHTML = "";
   const col = css(SPORT[a.sport].color);
-  disegnaMappa($("mappa"), [{ pts, col }], a.sport);
+  const pp = PERC_DI.get(id), conf = pp ? confrontaPercorso(id, pp) : null;
+  const rifPts = conf ? (await tracce())[String(conf.rif)] : null;
+  if (conf && $("confbadge")) $("confbadge").innerHTML = badge(conf.cat);
+  disegnaMappa($("mappa"), [{ pts, col }], a.sport, rifPts);
+  if (rifPts) { const lg = document.createElement("div"); lg.className = "legend"; lg.id = "mapl"; lg.style.margin = "8px 2px 0";
+    $("mappa").after(lg); legendaConfronto("mapl", pp.nome); }
   if (profilo("s1", pts, col)) $("profcard").classList.remove("hidden");
 }
 
@@ -766,6 +792,9 @@ function renderPercorsi() {
   const lista = tutti.filter(p => p.sport !== "corsa" || p.manuale);
   const suggeriti = tutti.filter(p => p.sport === "corsa" && !p.manuale);
   const nGps = ACTS.filter(a => a.gps).length;
+  const nRio = stato.sport === "tutto" || stato.sport === "corsa" ? senzaPercorso().length : 0;
+  $("riordinabtn").classList.toggle("hidden", !nRio);
+  $("riordinabtn").textContent = `Riordina le corse senza percorso (${nRio}) →`;
   $("percsub").textContent = `${lista.length} ${lista.length === 1 ? "percorso" : "percorsi"} · ${nGps} uscite con traccia GPS`;
 
   // --- grafico d'insieme: scarto dal tempo mediano di ciascun percorso (solo percorsi con almeno 3 uscite)
@@ -905,7 +934,7 @@ async function apriPercorso(pid) {
     if (p.sport === "corsa" && a.dist && a.mov) extra.push(`${mmss(a.mov / (a.dist / 1000))} /km`);
     if (p.sport === "scialpinismo" && a.dplus && a.mov) extra.push(`${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
     if (a.fc) extra.push(`♥ ${nf0.format(a.fc)}`);
-    return `<div class="rip" data-rip="${a.id}"><div class="d">${fDataBreve.format(a.d)} ${String(a.d.getFullYear()).slice(2)}</div>
+    return `<div class="rip" data-rip="${a.id}"><span class="sm" data-mini="${a.id}"></span><div class="d">${fDataBreve.format(a.d)} ${String(a.d.getFullYear()).slice(2)} <span data-badge="${a.id}"></span></div>
       <div class="t">${t ? hms(t) : "–"}</div>
       <div class="m">${extra.join(" · ")} · <button class="link" data-att="${a.id}">dettagli</button> · <button class="link" data-togli="${a.id}">togli</button></div>
       <div class="x">${a.id === best?.id ? "migliore" : d != null ? segno(d) : ""}</div></div>`;
@@ -914,6 +943,11 @@ async function apriPercorso(pid) {
   const T = await tracce();
   if (PILA.at(-1)?.id !== pid || !$("mappa")) return;
   const ptsBest = best && T[String(best.id)], ptsRif = T[String(rif?.id)];
+  document.querySelectorAll("#riplist [data-mini]").forEach(el => {
+    const idm = Number(el.dataset.mini), c = confrontaPercorso(idm, p);
+    el.innerHTML = miniatura(idm, p.rif, col);
+    const bd = document.querySelector(`#riplist [data-badge="${idm}"]`); if (bd) bd.innerHTML = badge(c?.cat);
+  });
   if (!ptsBest && !ptsRif) { $("mappa").outerHTML = `<p class="nota" style="margin-top:12px">Tracce non ancora scaricate.</p>`; }
 
   const seleziona = selId => {
@@ -1155,8 +1189,14 @@ const chiediNome = (titolo, valore = "") => dialogo(`<h2>${esc(titolo)}</h2>
   <button class="btn" data-esito="__testo">Salva</button>`);
 const scegli = (titolo, voci, vuoto = "Nessuna voce disponibile.") => dialogo(`<h2>${esc(titolo)}</h2>
   <div class="scelte">${voci.length ? voci.map(v => `<button class="scelta" data-esito="${v.id}">
-    <i class="dot" style="background:var(${SPORT[v.sport]?.color || "--muted"})"></i><span><b>${esc(v.t)}</b><small>${esc(v.s || "")}</small></span></button>`).join("")
+    <i class="dot" style="background:var(${SPORT[v.sport]?.color || "--muted"})"></i><span><b>${esc(v.t)}</b><small>${esc(v.s || "")}</small>${v.b || ""}</span>${v.mini ? `<span class="sm">${v.mini}</span>` : "<span></span>"}</button>`).join("")
     : `<div class="empty">${esc(vuoto)}</div>`}</div>`);
+// voci con confronto visivo: attività rispetto a un percorso, percorso rispetto a un'attività
+const voceAttivitaConf = (a, p) => { const c = confrontaPercorso(a.id, p);
+  return { ...voceAttivita(a), mini: miniatura(a.id, c?.rif ?? p.rif, css(SPORT[a.sport].color)), b: badge(c?.cat), _m: c?.media ?? 1e9 }; };
+const vocePercorsoConf = (p, idA) => { const c = confrontaPercorso(idA, p);
+  return { ...vocePercorso(p), mini: miniatura(idA, c?.rif ?? p.rif, css(SPORT[p.sport].color)), b: badge(c?.cat), _m: c?.media ?? 1e9 }; };
+const perSomiglianza = (u, v) => u._m - v._m;
 const vocePercorso = p => { const r = ACT_BY_ID.get(p.rif); return { id: p.id, sport: p.sport, t: p.nome,
   s: `${p.attivita.length} uscite${r?.dist ? ` · ${kmFmt(r.dist / 1000)} km` : ""}${r?.dplus ? ` · D+ ${nf0.format(r.dplus)} m` : ""}` }; };
 const voceAttivita = a => ({ id: a.id, sport: a.sport, t: nomePulito(a),
@@ -1168,13 +1208,15 @@ async function azionePercorso(az, p) {
     const nome = await chiediNome("Nome del percorso", p.nome); if (!nome || nome === p.nome) return;
     await modifica(`Percorso rinominato: ${nome}`, () => OP.rinomina(p, nome), () => mostraTop());
   } else if (az === "unisci") {
-    const altri = PERC.filter(x => x.id !== p.id).sort((x, y) => (y.sport === p.sport) - (x.sport === p.sport) || y.attivita.length - x.attivita.length);
-    const id = await scegli(`Unisci “${p.nome}” con…`, altri.map(vocePercorso)); if (!id) return;
+    await tracce();
+    const altri = PERC.filter(x => x.id !== p.id && x.sport === p.sport).map(x => vocePercorsoConf(x, p.rif)).sort(perSomiglianza);
+    const id = await scegli(`Unisci “${p.nome}” con…`, altri); if (!id) return;
     const altro = PERC.find(x => String(x.id) === id); if (!altro) return;
     await modifica(`Percorsi uniti: ${p.nome} + ${altro.nome}`, () => OP.unisci(altro, p), () => { PILA.at(-1).id = (PERC_DI.get(p.rif) || PERC_DI.get(altro.rif)).id; mostraTop(); });
   } else if (az === "aggiungi") {
-    const fuori = ACTS.filter(a => !p.attivita.includes(a.id) && a.sport === p.sport);
-    const id = await scegli("Aggiungi un'uscita al percorso", fuori.map(voceAttivita), "Nessun'altra uscita dello stesso sport."); if (!id) return;
+    await tracce();
+    const fuori = ACTS.filter(a => !p.attivita.includes(a.id) && a.sport === p.sport).map(a => voceAttivitaConf(a, p)).sort(perSomiglianza);
+    const id = await scegli("Aggiungi un'uscita al percorso · dalla più simile", fuori, "Nessun'altra uscita dello stesso sport."); if (!id) return;
     await modifica(`Uscita aggiunta a ${p.nome}`, () => OP.aggiungi(Number(id), p), () => { PILA.at(-1).id = PERC_DI.get(p.rif)?.id ?? PILA.at(-1).id; mostraTop(); });
   }
 }
@@ -1193,8 +1235,9 @@ async function togliDaPercorso(id, p) {
 async function azioneAttivita(az, id) {
   const a = ACT_BY_ID.get(id), attuale = PERC_DI.get(id);
   if (az === "aggiungi-a") {
-    const lista = PERC.filter(x => x !== attuale).sort((x, y) => (y.sport === a.sport) - (x.sport === a.sport) || y.attivita.length - x.attivita.length);
-    const pid = await scegli(attuale ? `Sposta in quale percorso?` : "Aggiungi a quale percorso?", lista.map(vocePercorso), "Non ci sono altri percorsi."); if (!pid) return;
+    await tracce();
+    const lista = PERC.filter(x => x !== attuale && x.sport === a.sport && (x.sport !== "corsa" || x.manuale)).map(x => vocePercorsoConf(x, id)).sort(perSomiglianza);
+    const pid = await scegli(attuale ? `Sposta in quale percorso?` : "Aggiungi a quale percorso?", lista, "Non ci sono altri percorsi."); if (!pid) return;
     const p = PERC.find(x => String(x.id) === pid);
     await modifica(`Uscita spostata in ${p.nome}`, () => OP.aggiungi(id, p), () => mostraTop());
   } else if (az === "crea") {
@@ -1212,9 +1255,14 @@ async function nuovoPercorso() {
   const sport = stato.sport !== "tutto" ? stato.sport : null;
   const scelte = [];
   while (true) {
+    await tracce();
     const elenco = ACTS.filter(a => !scelte.includes(a.id) && (!sport || a.sport === sport));
-    const id = await scegli(scelte.length ? `“${nome}”: ${scelte.length} uscite scelte. Aggiungine un'altra o premi Fine`
-      : `Scegli la prima uscita di “${nome}”`, [...(scelte.length ? [{ id: "__fine", sport: "", t: "✓ Fine", s: "Crea il percorso con le uscite scelte" }] : []), ...elenco.map(voceAttivita)]);
+    const voci = scelte.length
+      ? elenco.filter(a => a.sport === ACT_BY_ID.get(scelte[0]).sport).map(a => { const c = confronta(a.id, scelte[0]);
+          return { ...voceAttivita(a), mini: miniatura(a.id, scelte[0], css(SPORT[a.sport].color)), b: badge(c?.cat), _m: c?.media ?? 1e9 }; }).sort(perSomiglianza)
+      : elenco.map(a => ({ ...voceAttivita(a), mini: miniatura(a.id, null, css(SPORT[a.sport].color)) }));
+    const id = await scegli(scelte.length ? `“${nome}”: ${scelte.length} uscite scelte · dalla più simile alla prima. Aggiungine un'altra o premi Fine`
+      : `Scegli la prima uscita di “${nome}”`, [...(scelte.length ? [{ id: "__fine", sport: "", t: "✓ Fine", s: "Crea il percorso con le uscite scelte" }] : []), ...voci]);
     if (!id) { if (!scelte.length) return; break; }
     if (id === "__fine") break;
     scelte.push(Number(id));
@@ -1304,7 +1352,7 @@ async function apriInbox() {
     <div class="mappa" id="mappa"><div class="empty" style="padding:16px">Caricamento traccia…</div></div>
     <div class="legend" id="mapl" style="margin:8px 2px 0"></div>
     <section class="card">
-      <h2>${ok ? `Penso sia: ${esc(ok.nome)}` : "In quale percorso va?"}</h2>
+      <h2>${ok ? `Penso sia: ${esc(ok.nome)}` : "In quale percorso va?"} <span id="confbadge"></span></h2>
       <p class="sub">${ok ? `${quanto} · scarto medio ${nf0.format(x.distanza_m)} m` : "Nessuno dei tuoi percorsi è abbastanza simile"}</p>
       <div class="azioni colonna">
         ${ok ? `<button class="btn" data-inb="conferma">✓ Conferma</button>` : ""}
@@ -1318,8 +1366,9 @@ async function apriInbox() {
     const az = b.dataset.inb;
     if (az === "conferma") await modifica(`Uscita abbinata a ${ok.nome}`, () => OP.aggiungi(id, ok), () => mostraTop());
     else if (az === "altro") {
-      const miei = PERC.filter(p => p.sport === "corsa" && p.manuale).sort((u, v) => v.attivita.length - u.attivita.length);
-      const pid = await scegli("In quale percorso va?", miei.map(vocePercorso), "Non hai ancora percorsi di corsa: creane uno nuovo."); if (!pid) return;
+      await tracce();
+      const miei = PERC.filter(p => p.sport === "corsa" && p.manuale).map(p => vocePercorsoConf(p, id)).sort(perSomiglianza);
+      const pid = await scegli("In quale percorso va?", miei, "Non hai ancora percorsi di corsa: creane uno nuovo."); if (!pid) return;
       const p = PERC.find(q => String(q.id) === pid);
       await modifica(`Uscita abbinata a ${p.nome}`, () => OP.aggiungi(id, p), () => mostraTop());
     } else if (az === "nuovo") {
@@ -1332,12 +1381,11 @@ async function apriInbox() {
   const T = await tracce();
   if (PILA.at(-1)?.tipo !== "inbox" || !$("mappa")) return;
   const pa = T[String(id)], ps = ok ? T[String(x.simile_a)] : null;
+  if (ok && $("confbadge")) $("confbadge").innerHTML = badge(confrontaPercorso(id, ok)?.cat);
   if (!pa) { $("mappa").outerHTML = `<p class="nota" style="margin-top:12px">Traccia non disponibile.</p>`; return; }
   $("mappa").innerHTML = "";
-  const linee = [{ pts: pa, col: css("--s1"), w: 4 }];
-  if (ps) linee.push({ pts: ps, col: css("--s7"), w: 3, op: .8 });
-  disegnaMappa($("mappa"), linee, "corsa");
-  legenda("mapl", ps ? [["Questa uscita", css("--s1")], [`${ok.nome} (uscita simile)`, css("--s7")]] : []);
+  disegnaMappa($("mappa"), [{ pts: pa, col: css("--s1"), w: 4 }], "corsa", ps);
+  legendaConfronto("mapl", ok ? ok.nome : null);
 }
 
 /* ======================= Aggiorna ora da Garmin ======================= */
@@ -1371,6 +1419,126 @@ async function aggiornaDaGarmin() {
     avviso(n ? `Aggiornato ✓ · ${n} ${n === 1 ? "uscita" : "uscite"} da classificare` : "Aggiornato ✓");
   } catch (e) { avviso(e.message, true); }
   finally { aggiornando = false; $("garminbtn").disabled = false; }
+}
+
+/* ======================= Confronto visivo dei tracciati ======================= */
+const FIRME = new Map();
+const rad = x => x * Math.PI / 180;
+function dist(a, b) {
+  const p1 = rad(a[0]), p2 = rad(b[0]), h = Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(rad(b[1] - a[1]) / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+// 40 punti equidistanti lungo la traccia (stesso metodo di percorsi.py)
+function firma(id) {
+  if (FIRME.has(id)) return FIRME.get(id);
+  const pts = TRACCE?.[String(id)];
+  let f = null;
+  if (pts && pts.length >= 10) {
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i - 1], pts[i]));
+    const tot = cum.at(-1) || 1; f = []; let j = 0;
+    for (let i = 0; i < 40; i++) {
+      const ob = tot * i / 39;
+      while (j < cum.length - 2 && cum[j + 1] < ob) j++;
+      const fr = Math.max(0, Math.min(1, (ob - cum[j]) / ((cum[j + 1] - cum[j]) || 1))), a = pts[j], b = pts[Math.min(j + 1, pts.length - 1)];
+      f.push([a[0] + (b[0] - a[0]) * fr, a[1] + (b[1] - a[1]) * fr]);
+    }
+  }
+  FIRME.set(id, f); return f;
+}
+// categoria: "stesso" = stesse regole del riconoscimento automatico; "variante" = stessa zona, un tratto diverso
+function confronta(idA, idB) {
+  const fa = firma(idA), fb = firma(idB), a = ACT_BY_ID.get(idA), b = ACT_BY_ID.get(idB);
+  if (!fa || !fb || !a || !b) return null;
+  let media = 0; for (let i = 0; i < 40; i++) media += dist(fa[i], fb[i]); media /= 40;
+  const dS = dist(fa[0], fb[0]), dE = dist(fa[39], fb[39]);
+  const scarto = a.dist && b.dist ? Math.abs(a.dist - b.dist) / Math.max(a.dist, b.dist) : 1;
+  const cat = a.sport === b.sport && dS <= 300 && dE <= 300 && scarto <= .12 && media <= 150 ? "stesso"
+    : dS <= 1000 && media <= 600 ? "variante" : "altro";
+  return { media, cat };
+}
+function confrontaPercorso(idA, p) {
+  if (!p) return null;
+  const ordine = { stesso: 0, variante: 1, altro: 2 };
+  const membri = [p.rif, ...p.attivita.slice(-12)].filter((x, i, arr) => x !== idA && arr.indexOf(x) === i && firma(x));
+  let best = null;
+  membri.forEach(m => { const c = confronta(idA, m);
+    if (c && (!best || ordine[c.cat] < ordine[best.cat] || (ordine[c.cat] === ordine[best.cat] && c.media < best.media))) best = { ...c, rif: m }; });
+  return best;
+}
+const BADGE = { stesso: "Stesso giro", variante: "Variante", altro: "Altro giro" };
+const badge = cat => cat ? `<span class="badge ${cat}">${BADGE[cat]}</span>` : "";
+// miniatura: traccia dell'uscita (colore) sopra la forma del percorso di riferimento (grigio)
+function miniatura(idA, idRif, col) {
+  const A = TRACCE?.[String(idA)], Rf = idRif != null && idRif !== idA ? TRACCE?.[String(idRif)] : null;
+  if (!A && !Rf) return "";
+  const tutti = [...(A || []), ...(Rf || [])];
+  const la = tutti.map(p => p[0]), lo = tutti.map(p => p[1]);
+  const kx = Math.cos(rad((Math.min(...la) + Math.max(...la)) / 2));
+  const x0 = Math.min(...lo) * kx, x1 = Math.max(...lo) * kx, y0 = Math.min(...la), y1 = Math.max(...la);
+  const sc = 48 / Math.max(x1 - x0, y1 - y0, 1e-6), ox = (56 - (x1 - x0) * sc) / 2, oy = (56 - (y1 - y0) * sc) / 2;
+  const linea = pts => { const passo = Math.max(1, Math.ceil(pts.length / 120));
+    return pts.filter((_, i) => i % passo === 0 || i === pts.length - 1).map(p => `${(ox + (p[1] * kx - x0) * sc).toFixed(1)},${(oy + (y1 - p[0]) * sc).toFixed(1)}`).join(" "); };
+  return `<svg viewBox="0 0 56 56" class="mini" aria-hidden="true">
+    ${Rf ? `<polyline points="${linea(Rf)}" fill="none" stroke="var(--axis)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+    ${A ? `<polyline points="${linea(A)}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>` : ""}</svg>`;
+}
+function legendaConfronto(id, nomeRif) {
+  $(id).innerHTML = `<span><i class="dot" style="background:var(--s1)"></i>Questa uscita</span>` +
+    (nomeRif ? `<span><i style="display:inline-block;width:16px;border-top:3px dashed var(--muted)"></i>${esc(nomeRif)} (riferimento)</span>` : "");
+}
+
+/* ======================= Riordino delle corse senza percorso ======================= */
+function senzaPercorso() {
+  const esc = new Set(ABB.escludi.map(String));
+  return ACTS.filter(a => a.sport === "corsa" && a.gps && !PERC_DI.get(a.id)?.manuale && !esc.has(String(a.id)) && !ABB.assegna[a.id]);
+}
+let RIO_SCROLL = 0;
+async function apriRiordino() {
+  apriSheet("Riordina le corse", `<div class="empty" style="padding:16px">Confronto dei tracciati…</div>`);
+  await tracce();
+  if (PILA.at(-1)?.tipo !== "riordino") return;
+  const miei = PERC.filter(p => p.sport === "corsa" && p.manuale);
+  const lista = senzaPercorso();
+  if (!lista.length) { apriSheet("Riordina le corse", `<section class="card"><h2>Fatto ✓</h2><p class="sub">Tutte le corse con traccia GPS sono in un percorso o escluse.</p></section>`); return; }
+  const righe = lista.map(a => {
+    const ordine = { stesso: 0, variante: 1, altro: 2 };
+    let best = null;
+    miei.forEach(p => { const c = confrontaPercorso(a.id, p);
+      if (c && (!best || ordine[c.cat] < ordine[best.c.cat] || (ordine[c.cat] === ordine[best.c.cat] && c.media < best.c.media))) best = { p, c }; });
+    const sugg = best && best.c.cat !== "altro" ? best : null;
+    const info = [fDataRip.format(a.d), a.dist ? `${kmFmt(a.dist / 1000)} km` : null, tempoMov(a) ? hms(tempoMov(a)) : null,
+      a.dist && a.mov ? `${mmss(a.mov / (a.dist / 1000))} /km` : null].filter(Boolean).join(" · ");
+    return `<div class="rio">
+      <span class="sm">${miniatura(a.id, sugg ? sugg.c.rif : null, css("--s1"))}</span>
+      <div><b>${esc(nomePulito(a))}</b><small>${info}</small>
+        <small>${sugg ? `→ ${esc(sugg.p.nome)} ${badge(sugg.c.cat)}` : "Nessun tuo percorso simile"}</small></div>
+      <div class="azioni" style="grid-column:1 / 3;margin-top:6px">
+        ${sugg ? `<button class="pill primario" data-rio="conferma" data-id="${a.id}" data-p="${sugg.p.id}">✓ ${esc(sugg.p.nome)}</button>` : ""}
+        <button class="pill" data-rio="scegli" data-id="${a.id}">Scegli…</button>
+        <button class="pill" data-rio="nuovo" data-id="${a.id}">Nuovo</button>
+        <button class="pill" data-rio="nessuno" data-id="${a.id}">Nessuno</button>
+        <button class="link" data-att="${a.id}">dettagli</button>
+      </div></div>`;
+  });
+  apriSheet(`Riordina · ${lista.length} ${lista.length === 1 ? "corsa" : "corse"}`, `
+    <p class="nota" style="margin:12px 2px">Corse con traccia GPS che non sono in nessun tuo percorso, dalla più recente. In grigio la forma del percorso più simile, a colori la corsa.</p>
+    <section class="card" style="padding:4px 14px">${righe.join("")}</section>`);
+  $("sheet").scrollTop = RIO_SCROLL; RIO_SCROLL = 0;
+  $("sheetbody").onclick = async e => {
+    const b = e.target.closest("[data-rio]"); if (!b) return;
+    const id = Number(b.dataset.id), az = b.dataset.rio, y = $("sheet").scrollTop;
+    const dopo = () => { RIO_SCROLL = y; mostraTop(); };
+    if (az === "conferma") { const p = PERC.find(q => q.id === Number(b.dataset.p)); if (p) await modifica(`Uscita abbinata a ${p.nome}`, () => OP.aggiungi(id, p), dopo); }
+    else if (az === "scegli") {
+      const voci = miei.map(p => vocePercorsoConf(p, id)).sort(perSomiglianza);
+      const pid = await scegli("In quale percorso va?", voci, "Non hai ancora percorsi di corsa: creane uno nuovo."); if (!pid) return;
+      const p = PERC.find(q => String(q.id) === pid); await modifica(`Uscita abbinata a ${p.nome}`, () => OP.aggiungi(id, p), dopo);
+    } else if (az === "nuovo") {
+      const nome = await chiediNome("Nome del nuovo percorso", ""); if (!nome) return;
+      await modifica(`Nuovo percorso: ${nome}`, () => OP.crea(nome, [id]), dopo);
+    } else if (az === "nessuno") await modifica("Uscita esclusa dai percorsi", () => OP.togli(id, PERC_DI.get(id)), dopo);
+  };
 }
 
 /* ======================= Sonno ======================= */
@@ -1486,6 +1654,7 @@ $("reload").onclick = async () => { const pw = pwCorrente(); if (pw) { try { awa
 $("tab-pano").onclick = () => { stato.vista = "pano"; render(); window.scrollTo(0, 0); };
 $("tab-perc").onclick = () => { stato.vista = "perc"; render(); window.scrollTo(0, 0); };
 $("nuovoperc").onclick = () => nuovoPercorso();
+$("riordinabtn").onclick = () => { if (!GH.token) { vai("gh", 0); return; } vai("riordino", 0); };
 $("inbox").onclick = () => vai("inbox", 0);
 $("garminbtn").onclick = () => aggiornaDaGarmin();
 $("tab-sonno").onclick = () => { stato.vista = "sonno"; render(); window.scrollTo(0, 0); };
