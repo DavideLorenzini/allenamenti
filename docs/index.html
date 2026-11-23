@@ -46,6 +46,10 @@ button { font: inherit; color: inherit; }
 #lock { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 #lock form { width: 100%; max-width: 340px; display: grid; gap: 12px; }
 #lock h1 { font-size: 22px; margin: 0 0 4px; }
+#lock .attesa { display: none; }
+#lock.attesa form > :not(h1) { display: none; }
+#lock.attesa form > .attesa { display: block; animation: pulsa 1.2s ease-in-out infinite; }
+@keyframes pulsa { 50% { opacity: .45; } }
 #lock p { margin: 0; color: var(--ink2); }
 #lock input[type=password] { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--axis);
   background: var(--surface); color: var(--ink); font-size: 16px; }
@@ -235,8 +239,10 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     <label><input id="remember" type="checkbox" checked> Ricorda su questo dispositivo</label>
     <button class="btn" type="submit" id="unlockbtn">Sblocca</button>
     <div class="err" id="lockerr"></div>
+    <p class="attesa">Caricamento dati…</p>
   </form>
 </div>
+<script>try { if (localStorage.getItem("pw") || sessionStorage.getItem("pw")) document.getElementById("lock").classList.add("attesa"); } catch (e) {}</script>
 
 <div id="app" class="hidden">
   <header>
@@ -1380,12 +1386,16 @@ async function caricaAbbinamenti() {
       else ABB_ERR = `GitHub non raggiungibile (errore ${r.status}).`;
     }
     if (!blob && (!GH.token || ABB_ERR)) {
-      const r = await fetch(`abbinamenti.enc?t=${Date.now()}`, { cache: "no-store" });
-      if (r.ok) blob = await r.json();
+      try { const r = await fetch(`abbinamenti.enc?t=${Date.now()}`, { cache: "no-store" }); if (r.ok) blob = await r.json(); } catch {}
     }
+    if (blob) salvaCopia("abbinamenti.enc", blob);
+    else if (!dalRepo) blob = (await leggiCopia("abbinamenti.enc"))?.blob || null;     // senza rete: l'ultima copia
     ABB = normalizzaAbb(blob ? await decifra(blob, PW) : null);
     ABB_PRONTO = dalRepo;
-  } catch (e) { ABB_ERR = ABB_ERR || "Impossibile leggere le modifiche ai percorsi."; ABB = abbVuoto(); ABB_PRONTO = false; }
+  } catch (e) {
+    ABB_ERR = ABB_ERR || "Impossibile leggere le modifiche ai percorsi."; ABB = abbVuoto(); ABB_PRONTO = false;
+    try { const c = await leggiCopia("abbinamenti.enc"); if (c) ABB = normalizzaAbb(await decifra(c.blob, PW)); } catch {}   // senza rete: l'ultima copia
+  }
 }
 
 async function salvaAbbinamenti(messaggio) {
@@ -2166,13 +2176,32 @@ function renderSonno() {
 
 /* ======================= Avvio ======================= */
 let ultimoCaricamento = 0;
-async function apri(pw, ricorda) {
-  DATA = await carica(pw);
+function impostaDati(dati, pw) {
+  const prima = DATA;
+  DATA = dati;
   ACTS = (DATA.attivita || []).map(a => ({ ...a, d: new Date(a.inizio.replace(" ", "T")) }));
   PERC_BASE = DATA.percorsi || [];
   CATTURATE = DATA.catturate || {};
   ACT_BY_ID = new Map(ACTS.map(a => [a.id, a]));
-  TRACCE = null; PW = pw;
+  if (!prima || prima.aggiornato !== DATA.aggiornato) TRACCE = null;      // tracce da rileggere solo se i dati sono cambiati
+  PW = pw;
+}
+// apertura immediata: l'ultima copia salvata sul telefono; i dati aggiornati arrivano subito dopo con apri()
+async function apriDaCopia(pw) {
+  const c = await leggiCopia("data.enc"); if (!c) return false;
+  let dati; try { dati = await decifra(c.blob, pw); } catch { return false; }
+  impostaDati(dati, pw);
+  const a = await leggiCopia("abbinamenti.enc");
+  let abb = null; try { abb = a ? await decifra(a.blob, pw) : null; } catch {}
+  ABB = normalizzaAbb(abb); ABB_PRONTO = false; ABB_ERR = null;      // modifiche ai percorsi solo dopo la lettura dal repository
+  ricalcolaPercorsi();
+  $("agg").textContent = "Aggiornamento…";
+  $("lock").classList.add("hidden"); $("app").classList.remove("hidden");
+  render();
+  return true;
+}
+async function apri(pw, ricorda) {
+  impostaDati(await carica(pw), pw);
   // gli abbinamenti arrivano da GitHub: se tardano si mostra subito il resto e si ridisegna quando arrivano
   const lettura = caricaAbbinamenti();
   const letturaStato = caricaStato().then(() => renderAvviso());
@@ -2237,7 +2266,15 @@ function apriDaNotifica() {
 }
 (async () => {
   const pw = pwCorrente();
-  if (pw) { try { await apri(pw, !!store.get("pw")); apriDaNotifica(); } catch (e) { $("lockerr").textContent = e.message; if (e.pw) store.del("pw"); } }
+  if (!pw) return;
+  let mostrata = false;
+  try { mostrata = await apriDaCopia(pw); } catch {}
+  try { await apri(pw, !!store.get("pw")); apriDaNotifica(); }
+  catch (e) {
+    if (mostrata && !e.pw) { alertNoBlock(e.message); return; }     // resta la copia salvata, con il motivo in alto
+    $("app").classList.add("hidden"); $("lock").classList.remove("hidden", "attesa");
+    $("lockerr").textContent = e.message; if (e.pw) store.del("pw");
+  }
 })();
 </script>
 </body>
