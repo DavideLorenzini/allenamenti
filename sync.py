@@ -293,11 +293,55 @@ def aggiorna_tracce(client: GarminPersonalApiClient, attivita: list[dict], prec:
     return {"tracce": tracce, "senza": senza, "analisi": analisi, "an_falliti": an_falliti}
 
 
+CAMPI_RECUPERO: dict = {}
+MAX_FC_PER_GIRO = 40            # giorni di FC a riposo chiesti uno per uno a ogni giro (se il riepilogo non la contiene)
+
+
+def aggiorna_fc_riposo(client: GarminPersonalApiClient, recupero: list[dict], prec_fc: dict | None, oggi: date) -> dict:
+    """FC a riposo giorno per giorno dal servizio frequenza cardiaca, solo se il riepilogo giornaliero non la riporta.
+    Restituisce {data: bpm | None}; i giorni recenti senza valore vengono richiesti di nuovo (il giorno non è finito)."""
+    fc = dict(prec_fc or {})
+    recenti = [r for r in recupero if r["data"] >= (oggi - timedelta(days=14)).isoformat()]
+    if recenti and sum(1 for r in recenti if r.get("fc_riposo") is not None) >= len(recenti) / 2:
+        return fc                                              # il riepilogo la contiene già
+    ritenta = (oggi - timedelta(days=2)).isoformat()
+    giorni = [(oggi - timedelta(days=i)).isoformat() for i in range(STORICO_HRV_GG)]
+    da_fare = [g for g in giorni if g not in fc or (fc[g] is None and g >= ritenta)][:MAX_FC_PER_GIRO]
+    errori = 0
+    for g in da_fare:
+        try:
+            righe = rec.normalizza(client.get_daily_heart_rate(g))
+        except Exception as e:
+            print(f"  FC a riposo: non disponibile ({type(e).__name__} {getattr(e, 'status_code', '')}).")
+            errori += 1
+            if errori >= 3 or getattr(e, "status_code", None) in (403, 404, 429):
+                break
+            continue
+        v = next((r.get("fc_riposo") for r in righe if r.get("fc_riposo") is not None), None)
+        fc[g] = v
+        time.sleep(PAUSA_S)
+    limite = (oggi - timedelta(days=STORICO_HRV_GG)).isoformat()
+    fc = {g: v for g, v in fc.items() if g >= limite}
+    mancano = sum(1 for g in giorni if g not in fc)
+    print(f"  FC a riposo: {len(da_fare)} giorni richiesti, {sum(1 for v in fc.values() if v)} con valore, {mancano} ancora da chiedere.")
+    return fc
+
+
+def unisci_fc(recupero: list[dict], fc: dict) -> list[dict]:
+    per_data = {r["data"]: dict(r) for r in recupero}
+    for g, v in fc.items():
+        if v is not None:
+            r = per_data.setdefault(g, {"data": g})
+            r.setdefault("fc_riposo", v)
+    return sorted(per_data.values(), key=lambda r: r["data"])
+
+
 def scarica_recupero(client: GarminPersonalApiClient, dal: date, al: date) -> tuple[list[dict], dict | None]:
     """FC a riposo, stress, Body Battery, passi e VO2max giornalieri. Ogni fonte è facoltativa."""
     fonti = {"riepiloghi": client.get_daily_summaries, "body_battery": client.get_daily_body_battery,
              "stress": client.get_daily_stress, "vo2max": client.get_daily_vo2_max}
     liste, diag = [], {}
+    CAMPI_RECUPERO.clear()
     for nome, f in fonti.items():
         trovate, inizio = [], dal
         while inizio <= al:
@@ -311,6 +355,8 @@ def scarica_recupero(client: GarminPersonalApiClient, dal: date, al: date) -> tu
                 print(f"  Recupero/{nome}: errore ({type(e).__name__}).")
                 break
             righe = rec.normalizza(resp)
+            if resp and nome not in CAMPI_RECUPERO:
+                CAMPI_RECUPERO[nome] = snn.chiavi(resp)        # solo i nomi dei campi, per capire cosa manda Garmin
             if not righe and resp and nome not in diag:
                 diag[nome] = snn.chiavi(resp)
             trovate += righe
@@ -568,6 +614,9 @@ def aggiorna(password: str, args, notif: dict | None) -> None:
             recupero = rec.unisci(r_nuovo, [x for x in prec["recupero"] if x["data"] < r_dal.isoformat()]) if r_nuovo else prec["recupero"]
         else:
             recupero, recupero_diag = scarica_recupero(client, oggi - timedelta(days=STORICO_HRV_GG), oggi)
+        recupero = [{k: v for k, v in r.items()} for r in recupero]
+        fc_giorni = aggiorna_fc_riposo(client, recupero, (prec or {}).get("fc_giorni"), oggi)
+        recupero = unisci_fc(recupero, fc_giorni)
 
         # deduplica per id, ordina dalla più recente
         attivita = sorted({a["id"]: a for a in attivita}.values(), key=lambda a: a["inizio"], reverse=True)
@@ -616,7 +665,8 @@ def aggiorna(password: str, args, notif: dict | None) -> None:
     cambiati = []
     if scrivi_se_cambiato(OUT_FILE, {"attivita": attivita, "hrv": hrv, "percorsi": percorsi, "catturate": catturate,
                                      "da_classificare": da_classificare, "sonno": sonno, "sonno_diag": sonno_diag,
-                                     "recupero": recupero, "recupero_diag": recupero_diag, "meteo": meteo,
+                                     "recupero": recupero, "recupero_diag": recupero_diag, "fc_giorni": fc_giorni,
+                                     "recupero_campi": CAMPI_RECUPERO or (prec or {}).get("recupero_campi"), "meteo": meteo,
                                      "notificate": notificate}, prec, password):
         cambiati.append("data.enc")
     if scrivi_se_cambiato(TRACCE_FILE, tracce, prec_tracce, password):

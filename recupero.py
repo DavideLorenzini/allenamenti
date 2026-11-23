@@ -15,7 +15,7 @@ CAMPI = {
     "bb_risveglio": ("bodyBatteryAtWakeTime", "bodyBatteryWakeValue", "wakeBodyBattery"),
     "bb_carica": ("bodyBatteryChargedValue", "bodyBatteryCharged", "charged"),
     "bb_scarica": ("bodyBatteryDrainedValue", "bodyBatteryDrained", "drained"),
-    "passi": ("steps", "totalSteps"),
+    "passi": ("steps", "totalSteps", "stepCount", "totalStepCount", "dailyStepCount"),
     "vo2": ("vo2MaxPreciseValue", "vo2MaxValue", "vO2MaxValue", "vo2Max", "vo2max"),
 }
 CHIAVI_DATA = ("calendarDate", "summaryDate", "date", "day", "calendarDay")
@@ -72,14 +72,36 @@ def _serie_numeri(v) -> list[float]:
     return [x for x in out if 0 <= x <= 100]
 
 
-def _cerca(r: dict, trovati: dict, profondita: int = 3) -> None:
+def _numero(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _dentro(v: dict):
+    """Valore di un campo strutturato, es. {"value": 48} o {"total": 9000}."""
+    for k in ("value", "total", "count", "average", "avg", "restingValue"):
+        if _numero(v.get(k)) is not None:
+            return v[k]
+    return None
+
+
+def _fc_riposo_generica(k: str) -> bool:
+    """Nomi non previsti ma inequivocabili, es. "restingHeartRateBpm"; esclude le medie di più giorni."""
+    k = k.lower()
+    return "resting" in k and ("heartrate" in k or k.endswith("hr")) and not any(x in k for x in ("avg", "average", "seven", "7"))
+
+
+def _cerca(r: dict, trovati: dict, profondita: int = 4) -> None:
     if profondita <= 0:
         return
     for k, v in r.items():
-        campo = _INDICE.get(k.lower())
-        if campo and isinstance(v, (int, float)) and not isinstance(v, bool) and campo not in trovati:
+        campo = _INDICE.get(k.lower()) or ("fc_riposo" if _fc_riposo_generica(k) else None)
+        if campo and isinstance(v, dict) and _dentro(v) is not None and campo not in trovati:
+            v = _dentro(v)
+        if campo and _numero(v) is not None and campo not in trovati:
+            if campo == "fc_riposo" and not 25 <= v <= 120:
+                continue
             trovati[campo] = round(float(v), 1)
-        elif isinstance(v, dict):
+        elif isinstance(v, dict) and not (campo and campo in trovati):
             if "bodybattery" in k.lower() and "bb_max" not in trovati and _serie_numeri(v):
                 s = _serie_numeri(v)
                 trovati.setdefault("bb_max", max(s)); trovati.setdefault("bb_min", min(s)); trovati.setdefault("bb_ultimo", s[-1])
