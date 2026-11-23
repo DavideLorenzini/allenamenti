@@ -130,6 +130,16 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .stats .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stats .v .unita { display: block; font-size: 11px; font-weight: 500; color: var(--ink2); }
 .nw { white-space: nowrap; }
+.ultima { cursor: pointer; }
+.ultima .testa { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--ink2); font-size: 13px; }
+.ultima .testa b { color: var(--ink); font-weight: 600; }
+.ultima h2 { margin-top: 4px; }
+.ultima .stats { margin-top: 10px; }
+.ultima .confronti { margin: 10px 2px 0; padding: 0; list-style: none; font-size: 13px; color: var(--ink2); }
+.ultima .confronti li { margin-top: 4px; }
+.ultima .confronti b { color: var(--ink); font-weight: 600; }
+.ultima .traccia { display: block; width: 100%; height: 110px; margin-top: 10px; }
+.ultima .vai { margin-top: 10px; font-size: 13px; color: var(--s1); font-weight: 600; }
 .rip { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 8px; border-top: 1px solid var(--grid); cursor: pointer; border-radius: 10px; }
 .rip:first-child { border-top: 0; }
 .rip[aria-selected=true] { background: var(--grid); }
@@ -240,6 +250,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   </header>
 
   <main class="wrap" id="view-pano">
+    <section class="card ultima hidden" id="ultimacard" role="button" tabindex="0"></section>
     <div class="periodo" id="periodolbl"></div>
     <div class="kpis" id="kpis" style="margin-top:12px"></div>
 
@@ -708,9 +719,91 @@ function render() {
     $("view-" + k).classList.toggle("hidden", v !== k);
     $("tab-" + k).setAttribute("aria-pressed", v === k);
   });
-  if (pano) { renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
+  if (pano) { renderUltima(); renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
   else if (v === "perc") renderPercorsi();
   else renderSonno();
+}
+
+/* ======================= Ultima uscita ======================= */
+const ORDINE_ULTIMA = {
+  corsa: ["Distanza", "In movimento", "Passo", "FC media", "Passo in piano", "D+"],
+  scialpinismo: ["D+", "In movimento", "VAM in salita", "D+ per ora", "Distanza", "FC media", "Quota max"],
+  sci: ["D−", "Distanza", "Vel. max", "In movimento", "Quota max", "FC media"],
+  trekking: ["Distanza", "D+", "In movimento", "FC media", "Quota max", "Efficienza"],
+  altro: ["Distanza", "In movimento", "Totale", "FC media", "D+"],
+};
+function quando(d) {
+  const g0 = x => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const gg = Math.round((g0(new Date()) - g0(d)) / 864e5), ora = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (gg === 0) return `Oggi, ${ora}`;
+  if (gg === 1) return `Ieri, ${ora}`;
+  if (gg < 7) { const w = new Intl.DateTimeFormat("it-IT", { weekday: "long" }).format(d); return `${w[0].toUpperCase()}${w.slice(1)}, ${ora}`; }
+  return fDataLunga.format(d);
+}
+// confronti che contano: percorso ricorrente (posizione, migliore, volta precedente) e record personali
+function confrontiUltima(a) {
+  const out = [], p = PERC_DI.get(a.id);
+  if (p && percorsoValido(p)) {
+    const { conM, best, m } = statPerc(p), v = m.f(a);
+    if (v != null && conM.length >= 2) {
+      const ord = [...conM].sort((x, y) => m.minore ? m.f(x) - m.f(y) : m.f(y) - m.f(x));
+      const pos = ord.findIndex(x => x.id === a.id) + 1, i = conM.findIndex(x => x.id === a.id), prec = i > 0 ? conM[i - 1] : null;
+      out.push(best?.id === a.id
+        ? `${conM.length >= 3 ? "🏆 " : ""}<b>${esc(p.nome)}</b>: la migliore su ${conM.length} per ${m.breve} (${m.fmt(v)})`
+        : `<b>${esc(p.nome)}</b>: ${pos}ª su ${conM.length} per ${m.breve} · ${m.diff(v - m.f(best))} dalla migliore (${m.fmt(m.f(best))})`);
+      if (prec) out.push(`Rispetto alla volta precedente (${fDataRip.format(prec.d)}): <b>${m.diff(v - m.f(prec))}</b> ${(m.minore ? v < m.f(prec) : v > m.f(prec)) ? "· meglio" : v === m.f(prec) ? "· uguale" : "· peggio"}`);
+    }
+  }
+  const stesse = ACTS.filter(x => x.sport === a.sport);
+  if (stesse.length >= 3) {
+    const recordDi = (f, minore) => { const v = f(a); if (v == null) return false;
+      return stesse.every(x => x.id === a.id || f(x) == null || (minore ? v < f(x) : v > f(x))); };
+    if (a.sport === "corsa") {
+      [["1000", "sul km"], ["5000", "sui 5 km"], ["10000", "sui 10 km"], ["21097", "sulla mezza maratona"]].forEach(([d, t]) => {
+        if (recordDi(x => x.an?.migliori?.[d] ?? null, true)) out.push(`🏆 Record ${t}: <b>${hms(a.an.migliori[d])}</b>`);
+      });
+      if (a.dist >= 5000 && recordDi(x => x.dist >= 5000 && x.mov ? x.mov / (x.dist / 1000) : null, true)) out.push(`🏆 Passo migliore di sempre (≥ 5 km)`);
+    }
+    if (a.sport !== "sci" && recordDi(x => x.dist || null, false)) out.push(`🏆 L'uscita più lunga di sempre`);
+    if ((a.sport === "scialpinismo" || a.sport === "trekking") && recordDi(x => x.dplus || null, false)) out.push(`🏆 Il dislivello più alto di sempre`);
+  }
+  return out;
+}
+// sagoma della traccia in SVG (leggera: niente mappa in Panoramica)
+function svgTraccia(pts, col) {
+  const lat0 = pts.reduce((t, q) => t + q[0], 0) / pts.length, k = Math.cos(lat0 * Math.PI / 180);
+  const xy = pts.map(q => [q[1] * k, -q[0]]);
+  const xs = xy.map(q => q[0]), ys = xy.map(q => q[1]);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 || 1e-6, h = Math.max(...ys) - y0 || 1e-6;
+  const W = 300, H = 110, sc = Math.min((W - 8) / w, (H - 8) / h), ox = (W - w * sc) / 2, oy = (H - h * sc) / 2;
+  const d = xy.map((q, i) => `${i ? "L" : "M"}${(ox + (q[0] - x0) * sc).toFixed(1)} ${(oy + (q[1] - y0) * sc).toFixed(1)}`).join("");
+  const [xa, ya] = [ox + (xy[0][0] - x0) * sc, oy + (xy[0][1] - y0) * sc];
+  return `<svg class="traccia" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="${col}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${xa.toFixed(1)}" cy="${ya.toFixed(1)}" r="4" fill="${col}" stroke="var(--surface)" stroke-width="2"/></svg>`;
+}
+function renderUltima() {
+  const card = $("ultimacard"), a = filtrate()[0];
+  if (!a) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  card.dataset.att = a.id;
+  const st = statsAttivita(a), ord = ORDINE_ULTIMA[a.sport] || ORDINE_ULTIMA.altro;
+  const scelte = ord.map(l => st.find(x => x[0] === l)).filter(Boolean).slice(0, 6);
+  const conf = confrontiUltima(a);
+  const meteo = a.meteo?.t != null ? ` · <span class="nw">${meteoIcona(a.meteo.c)} ${nf0.format(a.meteo.t)} °C</span>` : "";
+  card.innerHTML = `<div class="testa"><span><i class="dot" style="background:var(${SPORT[a.sport].color})"></i> Ultima uscita · ${SPORT[a.sport].label}</span><b>${quando(a.d)}</b></div>
+    <h2>${esc(nomePulito(a))}</h2>
+    ${a.luogo || meteo ? `<p class="sub">${esc(a.luogo || "")}${a.luogo ? meteo : meteo.replace(" · ", "")}</p>` : ""}
+    ${htmlStats(scelte.length ? scelte : st.slice(0, 6))}
+    ${conf.length ? `<ul class="confronti">${conf.map(c => `<li>${c}</li>`).join("")}</ul>` : ""}
+    <div id="ultimatraccia"></div>
+    <div class="vai">Mappa, parziali e dettagli →</div>`;
+  if (!a.gps) return;
+  const id = a.id;
+  tracce().then(T => {
+    const pts = traccia(T, id), box = $("ultimatraccia");
+    if (pts && box && card.dataset.att === String(id)) box.innerHTML = svgTraccia(pts, css(SPORT[a.sport].color));
+  }).catch(() => {});
 }
 
 /* ======================= Forma fisica (VO2max e carico) ======================= */
@@ -923,10 +1016,9 @@ function htmlParziali(a) {
     <table class="tabella"><thead><tr><th>Km</th><th>Passo</th>${conGap ? "<th>In piano</th>" : ""}${conFc ? "<th>FC</th>" : ""}${conDisl ? "<th>Disl. m</th>" : ""}</tr></thead>
     <tbody>${righe}</tbody></table></section>`;
 }
-async function apriAttivita(id) {
-  const a = ACT_BY_ID.get(id); if (!a) return schedaSparita();
-  const p = PERC_DI.get(id), st = [];
-  const add = (l, v) => { if (v) st.push(`<div><div class="l">${l}</div><div class="v">${v}</div></div>`); };
+// statistiche di un'uscita: [etichetta, valore] (dettaglio dell'attività e riquadro "Ultima uscita")
+function statsAttivita(a) {
+  const st = [], add = (l, v) => { if (v) st.push([l, v]); };
   add("Distanza", a.dist ? `${kmFmt(a.dist / 1000)} km` : null);
   add("In movimento", a.mov ? hm(a.mov) : null);
   add("Totale", a.durata ? hm(a.durata) : null);
@@ -941,6 +1033,13 @@ async function apriAttivita(id) {
   add("FC media", a.fc ? `${nf0.format(a.fc)} bpm` : null);
   add("FC max", a.fcmax ? `${nf0.format(a.fcmax)} bpm` : null);
   add("Quota max", a.qmax ? `${nf0.format(a.qmax)} m` : null);
+  return st;
+}
+const htmlStats = st => `<div class="stats">${st.map(([l, v]) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`).join("")}</div>`;
+
+async function apriAttivita(id) {
+  const a = ACT_BY_ID.get(id); if (!a) return schedaSparita();
+  const p = PERC_DI.get(id), st = statsAttivita(a);
   let percHtml = "";
   if (p) {
     const { rip, conM, m } = statPerc(p);
@@ -959,7 +1058,7 @@ async function apriAttivita(id) {
   }
   const gen = apriSheet(nomePulito(a), `
     <p class="sub" style="margin:10px 2px 0">${SPORT[a.sport].label} · ${fDataLunga.format(a.d)}, ${a.inizio.slice(11, 16)}${a.luogo ? " · " + esc(a.luogo) : ""}</p>
-    <div class="stats">${st.join("")}</div>
+    ${htmlStats(st)}
     ${a.meteo ? `<p class="meteo">${meteoTesto(a.meteo)} <span class="nw" style="color:var(--muted)">· Open-Meteo</span></p>` : ""}
     <div class="mappa" id="mappa"></div>
     <section class="card hidden" id="profcard"><h2>Profilo altimetrico</h2><p class="sub">Quota lungo il percorso</p>
@@ -2073,6 +2172,7 @@ document.addEventListener("click", e => {
   if (att) { e.stopPropagation(); vai("att", Number(att.dataset.att)); }
   else if (perc) vai("perc", Number(perc.dataset.perc));
 });
+$("ultimacard").addEventListener("keydown", e => { if (e.key === "Enter") vai("att", Number($("ultimacard").dataset.att)); });
 $("logout").onclick = () => { store.del("pw"); try { sessionStorage.removeItem("pw"); } catch {} location.reload(); };
 function alertNoBlock(msg) { $("agg").textContent = msg; }
 document.addEventListener("visibilitychange", () => {
