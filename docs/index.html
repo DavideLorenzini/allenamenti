@@ -128,6 +128,8 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .stats > div { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 8px 10px; }
 .stats .l { color: var(--ink2); font-size: 12px; }
 .stats .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.stats .v .unita { display: block; font-size: 11px; font-weight: 500; color: var(--ink2); }
+.nw { white-space: nowrap; }
 .rip { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 8px; border-top: 1px solid var(--grid); cursor: pointer; border-radius: 10px; }
 .rip:first-child { border-top: 0; }
 .rip[aria-selected=true] { background: var(--grid); }
@@ -192,6 +194,19 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .riepilogo b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .pill.primario { background: var(--s1); border-color: var(--s1); color: #fff; }
 footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+.avvisostato { display: block; width: 100%; margin: 0 0 8px; text-align: left; border: 0; border-radius: 12px; padding: 10px 12px;
+  background: var(--s4); color: #1a1a19; font-weight: 600; font-size: 14px; cursor: pointer; }
+.avvisostato.errore { background: var(--critical); color: #fff; }
+.avvisostato.info { background: var(--grid); color: var(--ink); }
+.minititolo { font-size: 13px; font-weight: 600; color: var(--ink2); margin: 14px 0 6px; }
+.tabella { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.tabella th { color: var(--muted); font-weight: 500; text-align: right; padding: 4px 4px 6px; font-size: 12px; }
+.tabella td { text-align: right; padding: 6px 4px; border-top: 1px solid var(--grid); }
+.tabella th:first-child, .tabella td:first-child { text-align: left; }
+.tabella td.veloce { color: var(--s3); font-weight: 650; }
+.meteo { color: var(--ink2); font-size: 13px; margin: 6px 2px 0; }
+.campo-riga { display: flex; gap: 8px; align-items: center; }
+.campo-riga .campo { flex: 1; }
 footer button { background: none; border: 0; color: var(--ink2); text-decoration: underline; padding: 4px; }
 </style>
 </head>
@@ -217,6 +232,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
         <div style="display:flex;gap:6px"><button class="iconbtn" id="garminbtn">⇣ Garmin</button>
           <button class="iconbtn" id="reload" aria-label="Ricarica">↻</button></div>
       </div>
+      <button class="avvisostato hidden" id="avvisostato"></button>
       <button class="inbox hidden" id="inbox"></button>
       <div class="chips" id="sportchips"></div>
       <div class="chips" id="periodchips"></div>
@@ -226,6 +242,14 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   <main class="wrap" id="view-pano">
     <div class="periodo" id="periodolbl"></div>
     <div class="kpis" id="kpis" style="margin-top:12px"></div>
+
+    <section class="card hidden" id="formacard">
+      <h2>Forma fisica</h2><p class="sub" id="formasub"></p>
+      <div class="kpis" id="formakpi"></div>
+      <div id="f1box"><h3 class="minititolo" id="f1t">VO2max</h3><p class="sub" id="f1s"></p><div class="chartbox"><canvas id="f1"></canvas></div></div>
+      <div id="f2box"><h3 class="minititolo">Carico di allenamento per settimana</h3><p class="sub">Ultime 16 settimane · somma del carico Garmin delle attività</p>
+        <div class="legend" id="f2l"></div><div class="chartbox"><canvas id="f2"></canvas></div></div>
+    </section>
 
     <section class="card">
       <h2 id="c1t"></h2><p class="sub" id="c1s"></p>
@@ -251,7 +275,8 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
     </section>
 
     <footer>
-      Dati Garmin Connect · <button id="logout">Esci e dimentica password</button>
+      Dati Garmin Connect · meteo <a href="https://open-meteo.com" target="_blank" rel="noopener" style="color:inherit">Open-Meteo.com</a> (CC BY 4.0)<br>
+      <button data-gh="1">Impostazioni</button> · <button id="logout">Esci e dimentica password</button>
     </footer>
   </main>
 
@@ -275,7 +300,7 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
       <div class="list" id="sugglist"></div>
     </section>
     <section class="card">
-      <h2>Modifica percorsi</h2>
+      <h2>Impostazioni</h2>
       <p class="nota" id="ghstato"></p>
       <div class="azioni"><button class="pill" data-gh="1" id="ghbtn"></button></div>
       <p class="nota" style="margin-top:10px">Apri un percorso per rinominarlo, unirlo a un altro, aggiungere o togliere uscite; apri un'attività per abbinarla a un percorso.
@@ -284,6 +309,13 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   </main>
 
   <main class="wrap hidden" id="view-sonno">
+    <section class="card hidden" id="rc-card">
+      <h2>Recupero</h2><p class="sub" id="rc-sub"></p>
+      <div class="kpis" id="rc-kpi"></div>
+      <h3 class="minititolo">FC a riposo · ultimi 30 giorni</h3><p class="sub">Battiti al minuto · più in basso = più riposato</p>
+      <div class="chartbox"><canvas id="rc1"></canvas></div>
+    </section>
+    <section class="card hidden" id="rc-diag"></section>
     <section class="card" id="sn-notte"></section>
     <div class="kpis" id="sn-kpi" style="margin-top:12px"></div>
     <section class="card" id="sn1card"><h2>Durata per notte</h2><p class="sub">Ultimi 30 giorni · fasi del sonno, ore</p>
@@ -359,9 +391,9 @@ const MET = {
   fc:      { l: "FC media",     f: a => { const b = a.filter(x => x.fc && x.durata); const t = sum(b, "durata");
                                          return t ? b.reduce((s, x) => s + x.fc * x.durata, 0) / t : null; },
              fmt: v => [nf0.format(v), "bpm"] },
-  vsalita: { l: "D+ per ora",   f: a => { const b = a.filter(x => x.dplus && x.mov); const h = sum(b, "mov") / 3600;
-                                         return h ? sum(b, "dplus") / h : null; },
-             fmt: v => [nf0.format(v), "m/h"], note: "tempo in movimento, discesa inclusa" },
+  vsalita: { l: "VAM in salita", f: a => { const b = a.filter(x => x.an?.salita?.sec); const h = b.reduce((t, x) => t + x.an.salita.sec, 0) / 3600;
+                                         return h ? b.reduce((t, x) => t + x.an.salita.su, 0) / h : null; },
+             fmt: v => [nf0.format(v), "m/h"], note: "solo i tratti in salita" },
   qmax:    { l: "Quota max",    f: a => { const q = a.map(x => x.qmax).filter(Number.isFinite); return q.length ? Math.max(...q) : null; },
              fmt: v => [nf0.format(v), "m"] },
   vmax:    { l: "Velocità max", f: a => { const q = a.map(x => x.vmax).filter(Number.isFinite); return q.length ? Math.max(...q) * 3.6 : null; },
@@ -393,18 +425,38 @@ async function decifra(blob, pw) {
   if (blob.gzip) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
   return JSON.parse(new TextDecoder().decode(buf));
 }
+// copia dei file cifrati sul telefono, per aprire l'app anche senza rete (in montagna)
+const COPIE = "allenamenti-dati";
+async function salvaCopia(file, blob) {
+  try { const c = await caches.open(COPIE);
+    await c.put(new Request(file), new Response(JSON.stringify(blob), { headers: { "content-type": "application/json", "x-salvato": new Date().toISOString() } }));
+  } catch {}
+}
+async function leggiCopia(file) {
+  try { const r = await (await caches.open(COPIE)).match(new Request(file));
+    return r ? { blob: await r.json(), quando: r.headers.get("x-salvato") } : null;
+  } catch { return null; }
+}
 async function carica(pw, file = "data.enc") {
-  let blob = null;
+  let blob = null, quando = null, errore = null;
   if (GH.token && GH.repo()) {           // dati più freschi: direttamente dal repository (la pagina pubblicata può tardare)
     try { const r = await ghApi(`contents/docs/${file}?ref=main`, { accept: "application/vnd.github.raw+json" }); if (r.ok) blob = await r.json(); } catch {}
   }
   if (!blob) {
-    const r = await fetch(`${file}?t=${Date.now()}`, { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status === 404 ? "Dati non ancora generati: lancia il workflow su GitHub." : `Errore ${r.status}`);
-    blob = await r.json();
+    try {
+      const r = await fetch(`${file}?t=${Date.now()}`, { cache: "no-store" });
+      if (r.ok) blob = await r.json();
+      else errore = r.status === 404 ? "Dati non ancora generati: lancia il workflow su GitHub." : `Errore ${r.status}`;
+    } catch { errore = "Senza rete e nessun dato salvato su questo telefono."; }
   }
-  try { return await decifra(blob, pw); }
+  if (blob) salvaCopia(file, blob);
+  else { const c = await leggiCopia(file); if (c) { blob = c.blob; quando = c.quando; } }
+  if (!blob) throw new Error(errore || "Impossibile scaricare i dati.");
+  let dati;
+  try { dati = await decifra(blob, pw); }
   catch { const e = new Error("Password errata."); e.pw = true; throw e; }
+  if (file === "data.enc") OFFLINE = quando;
+  return dati;
 }
 
 /* ======================= Periodi ======================= */
@@ -570,6 +622,18 @@ function renderMesi() {
   disegna("c2", { type: "bar", data: { labels: mesi.map(m => MESI[m]), datasets: ds }, options: baseOpts({ tooltipFmt: ax.fmt }) });
 }
 
+// asse dei tempi (millisecondi): solo il periodo coperto dai dati, etichette sul primo giorno del mese
+function asseMesi(xs) {
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), m = Math.max((x1 - x0) * 0.02, 864e5);
+  const mesi = [], d = new Date(x0); d.setHours(0, 0, 0, 0); d.setDate(1); d.setMonth(d.getMonth() + 1);
+  for (; d.getTime() <= x1; d.setMonth(d.getMonth() + 1)) mesi.push(d.getTime());
+  const passo = Math.max(1, Math.ceil(mesi.length / 6)), segni = mesi.filter((_, i) => i % passo === 0);
+  return { type: "linear", min: x0 - m, max: x1 + m, bounds: "data", grid: { display: false }, border: { color: css("--axis") },
+    ...(segni.length >= 2 ? { afterBuildTicks: ax => { ax.ticks = segni.map(value => ({ value })); } } : {}),
+    ticks: { color: css("--muted"), maxTicksLimit: 7, autoSkip: false, maxRotation: 0, font: { size: 11 },
+      callback: v => { const t = new Date(v); return `${MESI[t.getMonth()]} ${String(t.getFullYear()).slice(2)}`; } } };
+}
+
 function renderTrend() {
   const sp = stato.sport, card = $("c3card");
   const lim = new Date(); lim.setDate(lim.getDate() - 365);
@@ -580,9 +644,9 @@ function renderTrend() {
     cfg = { t: "Passo per uscita", s: "Ultimi 12 mesi, uscite ≥ 3 km · più in alto = più veloce", pts, reverse: true,
             fmt: v => `${mmss(v)} /km`, col: css("--s1"), label: "Passo" };
   } else if (sp === "scialpinismo") {
-    const pts = ACTS.filter(a => a.sport === "scialpinismo" && a.d >= lim && a.dplus > 0 && a.mov > 0).reverse()
-      .map(a => ({ x: a.d.getTime(), y: a.dplus / (a.mov / 3600), n: a.nome }));
-    cfg = { t: "D+ per ora, per uscita", s: "Ultimi 12 mesi · tempo in movimento, discesa inclusa", pts,
+    const pts = ACTS.filter(a => a.sport === "scialpinismo" && a.d >= lim && a.an?.salita?.vam).reverse()
+      .map(a => ({ x: a.d.getTime(), y: a.an.salita.vam, n: a.nome }));
+    cfg = { t: "VAM in salita, per uscita", s: "Ultimi 12 mesi · metri di dislivello all'ora, solo nei tratti in salita", pts,
             fmt: v => `${nf0.format(v)} m/h`, col: css("--s2"), label: "D+/h" };
   }
   if (!cfg || cfg.pts.length < 2) { card.classList.add("hidden"); charts.c3?.destroy(); delete charts.c3; return; }
@@ -593,8 +657,7 @@ function renderTrend() {
   const o = baseOpts({ reverse: cfg.reverse, tooltipFmt: cfg.fmt });
   o.scales.y.beginAtZero = false;
   o.interaction = { mode: "nearest", intersect: false };
-  o.scales.x = { type: "linear", grid: { display: false }, border: { color: css("--axis") },
-    ticks: { color: css("--muted"), maxTicksLimit: 6, font: { size: 11 }, callback: v => { const d = new Date(v); return `${MESI[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`; } } };
+  o.scales.x = asseMesi(cfg.pts.map(p => p.x));
   o.plugins.tooltip.callbacks = {
     title: c => fDataBreve.format(new Date(c[0].parsed.x)),
     label: c => c.datasetIndex === 0 ? `${cfg.pts[c.dataIndex].n}: ${cfg.fmt(c.parsed.y)}` : `Media 5 uscite: ${cfg.fmt(c.parsed.y)}`,
@@ -617,6 +680,11 @@ function renderRecord() {
     r = [riga("Uscita più lunga", lunga, lunga && `${kmFmt(lunga.dist / 1000)} km`),
          riga("Passo migliore (≥ 5 km)", veloce, veloce && `${mmss(veloce.mov / (veloce.dist / 1000))} /km`),
          riga("Dislivello massimo", dmax, dmax && `${nf0.format(dmax.dplus)} m`)];
+    // migliori tempi sulle distanze classiche, cercati dentro ogni corsa (tempo in movimento)
+    [["1000", "1 km più veloce"], ["5000", "5 km più veloci"], ["10000", "10 km più veloci"], ["21097", "Mezza maratona più veloce"]].forEach(([d, t]) => {
+      const x = top(a.filter(y => y.an?.migliori?.[d]), y => -y.an.migliori[d]);
+      if (x) r.push(riga(t, x, d === "1000" ? hms(x.an.migliori[d]) : `${hms(x.an.migliori[d])} <small style="display:inline;color:var(--muted)">${mmss(x.an.migliori[d] / (Number(d) / 1000))} /km</small>`));
+    });
   } else if (sp === "sci") {
     const giorni = {}; a.forEach(x => { const g = x.inizio.slice(0, 10); (giorni[g] ||= { d: x.d, nome: x.luogo || x.nome, dminus: 0 }).dminus += x.dminus || 0; });
     const gmax = top(Object.values(giorni), x => x.dminus), vm = top(a, x => x.vmax);
@@ -632,7 +700,7 @@ function renderRecord() {
 
 function render() {
   if (!DATA) return;
-  renderChips(); renderInbox();
+  renderChips(); renderInbox(); renderAvviso();
   const v = stato.vista, pano = v === "pano";
   $("periodchips").classList.toggle("hidden", !pano);
   $("sportchips").classList.toggle("hidden", v === "sonno");
@@ -640,9 +708,95 @@ function render() {
     $("view-" + k).classList.toggle("hidden", v !== k);
     $("tab-" + k).setAttribute("aria-pressed", v === k);
   });
-  if (pano) { renderKpi(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
+  if (pano) { renderKpi(); renderForma(); renderSettimane(); renderMesi(); renderTrend(); renderRecord(); }
   else if (v === "perc") renderPercorsi();
   else renderSonno();
+}
+
+/* ======================= Forma fisica (VO2max e carico) ======================= */
+const statoCarico = r => r < 0.8 ? "Basso" : r <= 1.4 ? "Ottimale" : r < 2 ? "Alto" : "Molto alto";
+function renderForma() {
+  const card = $("formacard"), g = 864e5, oggi = new Date(), lim = new Date(oggi - 365 * g);
+  // VO2max: valori giornalieri di Garmin se ci sono, altrimenti la stima registrata a ogni corsa
+  let vo2 = (DATA.recupero || []).filter(r => r.vo2).map(r => ({ x: new Date(r.data + "T12:00").getTime(), y: r.vo2 })), fonte = "valore giornaliero Garmin";
+  if (vo2.length < 2) { vo2 = ACTS.filter(a => a.vo2 && a.sport === "corsa").map(a => ({ x: a.d.getTime(), y: a.vo2 })); fonte = "stima di Garmin a ogni corsa"; }
+  vo2 = vo2.filter(q => q.x >= lim.getTime()).sort((q, r) => q.x - r.x);
+  const conCarico = ACTS.filter(a => a.carico > 0);
+  if (vo2.length < 1 && !conCarico.length) { card.classList.add("hidden"); ["f1", "f2"].forEach(k => { charts[k]?.destroy(); delete charts[k]; }); return; }
+  card.classList.remove("hidden");
+  $("formasub").textContent = "Valori calcolati da Garmin · tutti gli sport";
+  const tile = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  const nfv = v => Number.isInteger(v) ? nf0.format(v) : nf1.format(v);
+  let html = "";
+  if (vo2.length) {
+    const u = vo2.at(-1), prima = [...vo2].reverse().find(q => q.x <= u.x - 80 * g);
+    const d = prima ? u.y - prima.y : null;
+    html += tile("VO2max", nfv(u.y), d == null ? fonte : `${d > 0.05 ? "▲ +" : d < -0.05 ? "▼ −" : "= "}${nf1.format(Math.abs(d))} rispetto a 3 mesi fa`);
+  }
+  if (conCarico.length) {
+    const somma = gg => conCarico.filter(a => a.d > new Date(oggi - gg * g) && a.d <= oggi).reduce((t, a) => t + a.carico, 0);
+    const acuto = somma(7), cronico = somma(28) / 4, r = cronico > 0 ? acuto / cronico : null;
+    html += tile("Rapporto di carico", r == null ? "–" : new Intl.NumberFormat("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(r),
+      r == null ? "servono 4 settimane di dati" : `<b>${statoCarico(r)}</b> (fascia ideale 0,8–1,4) · ultimi 7 giorni: ${nf0.format(acuto)} · media settimanale delle ultime 4: ${nf0.format(cronico)}`);
+  }
+  $("formakpi").innerHTML = html;
+  // grafico VO2max
+  $("f1box").classList.toggle("hidden", vo2.length < 2);
+  if (vo2.length >= 2) {
+    $("f1s").textContent = `Ultimi 12 mesi · ${fonte}`;
+    const col = css("--s1"), o = baseOpts({ tooltipFmt: v => nfv(Math.round(v * 10) / 10) });
+    o.scales.y.beginAtZero = false; o.interaction = { mode: "nearest", intersect: false };
+    o.scales.x = asseMesi(vo2.map(q => q.x));
+    o.plugins.tooltip.callbacks = { title: c => fDataBreve.format(new Date(c[0].parsed.x)), label: c => `VO2max ${nfv(c.parsed.y)}` };
+    disegna("f1", { type: "line", data: { datasets: [{ label: "VO2max", data: vo2, borderColor: col, backgroundColor: col, borderWidth: 2,
+      pointRadius: vo2.length > 40 ? 0 : 3, pointHoverRadius: 5, tension: .25 }] }, options: o });
+  } else { charts.f1?.destroy(); delete charts.f1; }
+  // carico per settimana, diviso per sport
+  $("f2box").classList.toggle("hidden", !conCarico.length);
+  if (conCarico.length) {
+    const N = 16, l0 = lunedi(new Date()), sett = [];
+    for (let i = N - 1; i >= 0; i--) { const x = new Date(l0); x.setDate(x.getDate() - 7 * i); sett.push(x); }
+    const famiglie = FAMIGLIE.filter(f => conCarico.some(a => a.sport === f));
+    const ds = famiglie.map(f => ({ label: SPORT[f].label, data: sett.map(x => { const e = new Date(x); e.setDate(e.getDate() + 7);
+      return conCarico.filter(a => a.sport === f && a.d >= x && a.d < e).reduce((t, a) => t + a.carico, 0); }), ...barStyle(css(SPORT[f].color)) }));
+    legenda("f2l", ds.map(d => [d.label, d.backgroundColor]));
+    disegna("f2", { type: "bar", data: { labels: sett.map(x => `${x.getDate()} ${MESI[x.getMonth()]}`), datasets: ds },
+      options: baseOpts({ stacked: true, tooltipFmt: v => nf0.format(v) }) });
+  } else { charts.f2?.destroy(); delete charts.f2; }
+}
+
+/* ======================= Stato dell'aggiornamento automatico ======================= */
+let STATO = null, OFFLINE = null;
+async function caricaStato() {
+  try {
+    let r = null;
+    if (GH.token && GH.repo()) {
+      const x = await ghApi("contents/docs/stato.json?ref=main", { accept: "application/vnd.github.raw+json" });
+      if (x.ok) r = await x.json();
+    }
+    if (!r) { const x = await fetch(`stato.json?t=${Date.now()}`, { cache: "no-store" }); if (x.ok) r = await x.json(); }
+    STATO = r;
+  } catch { /* senza rete resta l'ultimo stato letto */ }
+}
+const oreFa = t => (Date.now() - Date.parse(t)) / 36e5;
+const fOraBreve = t => new Date(t).toLocaleString("it-IT", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+function giorniAllaScadenza() {          // giorni di calendario da oggi alla data di scadenza (0 = scade oggi)
+  const [y, m, d] = String(store.get("garmin_scadenza") || "").split("-").map(Number); if (!y || !m || !d) return null;
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  return Math.round((new Date(y, m - 1, d) - oggi) / 864e5);   // round: col cambio dell'ora un giorno dura 23 o 25 ore
+}
+const quandoScade = gg => gg < 0 ? "è scaduta" : gg === 0 ? "scade oggi" : gg === 1 ? "scade domani" : `scade tra ${gg} giorni`;
+function renderAvviso() {
+  const b = $("avvisostato"); let testo = "", classe = "";
+  const gg = giorniAllaScadenza();
+  if (OFFLINE) { testo = `Senza rete: stai vedendo i dati salvati il ${fOraBreve(OFFLINE)}`; classe = "info"; }
+  else if (STATO?.esito === "errore" && STATO.tipo !== "servizio") { testo = "⚠ Aggiornamento fermo: Garmin rifiuta la chiave. Tocca per sapere cosa fare →"; classe = "errore"; }
+  else if (STATO?.esito === "errore" && oreFa(STATO.ultimo_ok || DATA?.aggiornato || STATO.controllato) > 6)   // un errore passeggero non merita un avviso
+    testo = `⚠ Garmin non risponde da ${fOraBreve(STATO.ultimo_ok || DATA?.aggiornato || STATO.controllato)}: nuovo tentativo ogni 2 ore. Tocca per i dettagli →`;
+  else if (STATO?.controllato && oreFa(STATO.controllato) > 6) testo = `⚠ Nessun aggiornamento da ${fOraBreve(STATO.controllato)}: tocca per sapere cosa fare →`;
+  else if (!STATO && DATA?.aggiornato && oreFa(DATA.aggiornato) > 72) testo = `⚠ Dati fermi al ${fOraBreve(DATA.aggiornato)}: tocca per sapere cosa fare →`;
+  else if (gg != null && gg <= 14) { testo = `${gg <= 0 ? "⚠ " : ""}La chiave Garmin ${quandoScade(gg)}: rinnovala →`; classe = gg <= 0 ? "errore" : ""; }
+  b.textContent = testo; b.className = `avvisostato ${classe}`; b.classList.toggle("hidden", !testo);
 }
 
 /* ======================= Tracce, mappe e percorsi ======================= */
@@ -730,7 +884,45 @@ function profilo(id, pts, col) {
   return true;
 }
 
+/* --- meteo (Open-Meteo, codici WMO) --- */
+const METEO = [[0, "☀️", "sereno"], [1, "🌤️", "poco nuvoloso"], [2, "⛅", "parzialmente nuvoloso"], [3, "☁️", "coperto"], [48, "🌫️", "nebbia"],
+  [57, "🌦️", "pioviggine"], [67, "🌧️", "pioggia"], [77, "🌨️", "neve"], [82, "🌦️", "rovesci"], [86, "🌨️", "rovesci di neve"], [99, "⛈️", "temporale"]];
+const meteoVoce = c => c == null ? null : METEO.find(([k]) => c <= k) || METEO.at(-1);
+const meteoIcona = c => meteoVoce(c)?.[1] || "";
+function meteoTesto(m) {
+  if (!m || m.t == null) return "";
+  const v = meteoVoce(m.c), parti = [`${v ? v[1] + " " + v[2] + " · " : ""}${nf0.format(m.t)} °C`];
+  if (m.tp != null && Math.abs(m.tp - m.t) >= 2) parti.push(`percepita ${nf0.format(m.tp)} °C`);
+  if (m.u != null) parti.push(`umidità ${nf0.format(m.u)}%`);
+  if (m.v) parti.push(`vento ${nf0.format(m.v)} km/h`);
+  if (m.p) parti.push(`pioggia ${nf1.format(m.p)} mm`);
+  return parti.map(x => `<span class="nw">${x}</span>`).join(" · ");
+}
+
 /* --- dettaglio attività --- */
+function htmlSalita(a) {
+  const s = a.an?.salita;
+  if (!s || (a.sport !== "scialpinismo" && a.sport !== "trekking")) return "";
+  const t = (l, v) => `<div><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  return `<section class="card"><h2>Salita e discesa</h2><p class="sub">Calcolate sulla traccia completa · soste e cambi assetto esclusi</p>
+    <div class="stats" style="margin-top:4px">${t("VAM in salita", `${nf0.format(s.vam)} m/h`)}${t("Tempo in salita", hm(s.sec))}${t("D+ in salita", `${nf0.format(s.su)} m`)}
+    ${s.sec_giu ? t("Tempo in discesa", hm(s.sec_giu)) : ""}${s.giu ? t("D− in discesa", `${nf0.format(s.giu)} m`) : ""}${s.fc ? t("FC in salita", `${nf0.format(s.fc)} bpm`) : ""}</div></section>`;
+}
+function htmlParziali(a) {
+  const p = a.an?.parziali;
+  if (!p?.length || (a.sport !== "corsa" && a.sport !== "trekking")) return "";
+  const passi = p.map(r => r[1] / (r[0] / 1000)), veloce = Math.min(...passi);
+  const conGap = p.some(r => r[5]), conDisl = p.some(r => r[3] != null), conFc = p.some(r => r[2]);
+  const righe = p.map((r, i) => {
+    const km = r[0] >= 999 ? `${i + 1}` : `${nf1.format((i * 1000 + r[0]) / 1000)}`;
+    return `<tr><td>${km}</td><td class="${passi[i] === veloce && p.length > 1 ? "veloce" : ""}">${mmss(passi[i])}</td>
+      ${conGap ? `<td>${r[5] ? mmss(r[5] / (r[0] / 1000)) : "–"}</td>` : ""}${conFc ? `<td>${r[2] ?? "–"}</td>` : ""}
+      ${conDisl ? `<td>+${r[3] ?? 0} / −${r[4] ?? 0}</td>` : ""}</tr>`;
+  }).join("");
+  return `<section class="card"><h2>Parziali al km</h2><p class="sub">Tempo in movimento · passo in piano: stima per la pendenza (modello di Minetti) · in verde il km più veloce</p>
+    <table class="tabella"><thead><tr><th>Km</th><th>Passo</th>${conGap ? "<th>In piano</th>" : ""}${conFc ? "<th>FC</th>" : ""}${conDisl ? "<th>Disl. m</th>" : ""}</tr></thead>
+    <tbody>${righe}</tbody></table></section>`;
+}
 async function apriAttivita(id) {
   const a = ACT_BY_ID.get(id); if (!a) return schedaSparita();
   const p = PERC_DI.get(id), st = [];
@@ -741,7 +933,10 @@ async function apriAttivita(id) {
   add("D+", a.dplus ? `${nf0.format(a.dplus)} m` : null);
   add("D−", a.dminus ? `${nf0.format(a.dminus)} m` : null);
   if (a.sport === "corsa" && a.dist && a.mov) add("Passo", `${mmss(a.mov / (a.dist / 1000))} /km`);
-  if (a.sport === "scialpinismo" && a.dplus && a.mov) add("D+ per ora", `${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
+  if (a.sport === "corsa" && a.an?.gap) add("Passo in piano", `${mmss(a.an.gap)} /km`);
+  if (a.an?.salita && a.sport !== "corsa") add("VAM in salita", `${nf0.format(a.an.salita.vam)} m/h`);
+  else if (a.sport === "scialpinismo" && a.dplus && a.mov) add("D+ per ora", `${nf0.format(a.dplus / (a.mov / 3600))} m/h`);
+  { const e = efficienzaDi(a.sport), v = e.f(a); if (v != null && a.sport !== "sci") add("Efficienza", `${e.fmt(v)}<span class="unita">ogni 100 battiti</span>`); }
   if (a.sport === "sci" && a.vmax) add("Vel. max", `${nf0.format(a.vmax * 3.6)} km/h`);
   add("FC media", a.fc ? `${nf0.format(a.fc)} bpm` : null);
   add("FC max", a.fcmax ? `${nf0.format(a.fcmax)} bpm` : null);
@@ -765,9 +960,11 @@ async function apriAttivita(id) {
   const gen = apriSheet(nomePulito(a), `
     <p class="sub" style="margin:10px 2px 0">${SPORT[a.sport].label} · ${fDataLunga.format(a.d)}, ${a.inizio.slice(11, 16)}${a.luogo ? " · " + esc(a.luogo) : ""}</p>
     <div class="stats">${st.join("")}</div>
+    ${a.meteo ? `<p class="meteo">${meteoTesto(a.meteo)} <span class="nw" style="color:var(--muted)">· Open-Meteo</span></p>` : ""}
     <div class="mappa" id="mappa"></div>
     <section class="card hidden" id="profcard"><h2>Profilo altimetrico</h2><p class="sub">Quota lungo il percorso</p>
       <div class="chartbox"><canvas id="s1"></canvas></div></section>
+    ${htmlSalita(a)}${htmlParziali(a)}
     ${percHtml}`);
   $("sheetbody").onclick = e => { const b = e.target.closest("[data-azatt]"); if (b) azioneAttivita(b.dataset.azatt, id); };
   const box = $("mappa");
@@ -792,32 +989,58 @@ async function apriAttivita(id) {
 // statistiche dei percorsi: passo (min/km) per corsa, trekking e altro; D+ per ora per lo scialpinismo
 const METRICHE = {
   passo: { l: "Passo medio", breve: "passo", f: a => a.dist > 0 && tempoMov(a) ? tempoMov(a) / (a.dist / 1000) : null,
-    fmt: v => `${mmss(v)} /km`, parti: v => [mmss(v), "/km"], diff: d => `${segno(d)} /km`, minore: true, su: "più veloce", giu: "più lento" },
-  salita: { l: "D+ per ora", breve: "D+ per ora", f: a => a.dplus && tempoMov(a) ? a.dplus / (tempoMov(a) / 3600) : null,
-    fmt: v => `${nf0.format(v)} m/h`, parti: v => [nf0.format(v), "m/h"], diff: d => `${d >= 0 ? "+" : "−"}${nf0.format(Math.abs(d))} m/h`, minore: false, su: "più veloce in salita", giu: "più lento in salita" },
+    fmt: v => `${mmss(v)} /km`, parti: v => [mmss(v), "/km"], diff: d => `${segno(d)} /km`, minore: true, su: "più veloce", giu: "più lento",
+    sub: "Minuti al km, tempo in movimento" },
+  // scialpinismo: VAM calcolata sulla traccia completa, contando solo i tratti in salita (niente discesa né soste)
+  salita: { l: "VAM in salita", breve: "VAM", f: a => a.an?.salita?.vam ?? null,
+    fmt: v => `${nf0.format(v)} m/h`, parti: v => [nf0.format(v), "m/h"], diff: d => `${d >= 0 ? "+" : "−"}${nf0.format(Math.abs(d))} m/h`, minore: false, su: "più veloce in salita", giu: "più lento in salita",
+    sub: "Metri di dislivello all'ora, solo nei tratti in salita" },
 };
 const metricaDi = sport => sport === "scialpinismo" ? METRICHE.salita : METRICHE.passo;
-function statPerc(p) {
-  const m = metricaDi(p.sport);
+// efficienza: quanta strada (o quanta salita) fai ogni 100 battiti del cuore. Se sale, a parità di fatica vai più forte.
+const EFFICIENZA = {
+  passo: { l: "Efficienza", f: a => a.dist > 0 && tempoMov(a) && a.fc ? a.dist / (tempoMov(a) / 60) / a.fc * 100 : null,
+    fmt: v => `${nf0.format(v)} m`, parti: v => [nf0.format(v), "m"], minore: false, eff: true,
+    sub: "Metri percorsi ogni 100 battiti (passo e FC insieme) · più in alto = più in forma · caldo e stanchezza la abbassano" },
+  salita: { l: "Efficienza in salita", f: a => { const s = a.an?.salita, fc = s?.fc || a.fc; return s?.sec && fc ? s.su / (s.sec / 60) / fc * 100 : null; },
+    fmt: v => `${nf1.format(v)} m`, parti: v => [nf1.format(v), "m"], minore: false, eff: true,
+    sub: "Metri di dislivello ogni 100 battiti in salita · più in alto = più in forma · caldo e stanchezza la abbassano" },
+};
+const efficienzaDi = sport => sport === "scialpinismo" ? EFFICIENZA.salita : EFFICIENZA.passo;
+function serieMisura(p, m) {
   const rip = p.attivita.map(i => ACT_BY_ID.get(i)).filter(Boolean);        // dalla più vecchia
   const conM = rip.filter(a => m.f(a) != null);
   const best = conM.reduce((b, x) => !b || (m.minore ? m.f(x) < m.f(b) : m.f(x) > m.f(b)) ? x : b, null);
+  return { rip, conM, best };
+}
+function statPerc(p) {
+  const m = metricaDi(p.sport), { rip, conM, best } = serieMisura(p, m);
   return { rip, conM, best, ult: rip.at(-1), rif: ACT_BY_ID.get(p.rif) || rip[0], m };
 }
 
-const sottotitoloMetrica = m => m.minore ? "Minuti al km, tempo in movimento · più in alto = meglio"
-  : "Metri di dislivello all'ora, tempo in movimento, discesa inclusa · più in alto = meglio";
-// passo (o D+ per ora) di ogni uscita del percorso: lo stesso grafico nella schermata Percorsi e nel dettaglio
-function graficoPercorso(id, p) {
-  const { conM, best, m } = statPerc(p), col = css(SPORT[p.sport].color);
+const sottotitoloMetrica = m => `${m.sub} · più in alto = meglio`;
+// dettaglio di un'uscita nei riquadri dei grafici dei percorsi
+function dettaglioUscita(a, m) {
+  const parti = [a.dist ? `${kmFmt(a.dist / 1000)} km` : null, tempoMov(a) ? hms(tempoMov(a)) : null];
+  if (m?.eff) {           // stessi dati usati per calcolare l'efficienza
+    const base = metricaDi(a.sport), v = base.f(a), fc = a.sport === "scialpinismo" ? (a.an?.salita?.fc || a.fc) : a.fc;
+    parti.push(v != null ? base.fmt(v) : null, fc ? `FC ${nf0.format(fc)}` : null);
+  }
+  if (a.meteo?.t != null) parti.push(`${nf0.format(a.meteo.t)} °C`);
+  return parti.filter(Boolean).join(" · ");
+}
+// una misura (passo, VAM o efficienza) per ogni uscita del percorso: lo stesso grafico in Percorsi e nel dettaglio
+function graficoPercorso(id, p, m = metricaDi(p.sport)) {
+  const { conM, best } = serieMisura(p, m), col = css(SPORT[p.sport].color);
   const o = baseOpts({ reverse: m.minore, tooltipFmt: v => m.fmt(v) });
   o.scales.y.beginAtZero = false;
   o.plugins.tooltip.callbacks = { label: c => { const a = conM[c.dataIndex];
-    return [`${nomePulito(a)}: ${m.fmt(c.parsed.y)}${a.id === best?.id ? " · migliore" : ""}`, `${a.dist ? kmFmt(a.dist / 1000) + " km · " : ""}${hms(tempoMov(a))}`]; } };
+    return [`${nomePulito(a)}: ${m.fmt(c.parsed.y)}${a.id === best?.id ? " · migliore" : ""}`, dettaglioUscita(a, m)]; } };
   disegna(id, { type: "line", data: { labels: conM.map(a => fDataRip.format(a.d)), datasets: [{ label: m.l, data: conM.map(m.f),
     borderColor: col + "73", borderWidth: 2, tension: .2,
     pointRadius: conM.map(a => a.id === best?.id ? 6 : 4), pointBackgroundColor: conM.map(a => a.id === best?.id ? col : col + "99"),
     pointBorderColor: css("--surface"), pointBorderWidth: 1.5 }] }, options: o });
+  return conM.length;
 }
 
 // mini-grafico dei tempi di un percorso: più in alto = più veloce
@@ -838,7 +1061,7 @@ function renderPercorsi() {
   $("ghstato").innerHTML = ABB_ERR ? `<span class="err">${esc(ABB_ERR)}</span>`
     : GH.token ? `Collegato a GitHub ✓ · le modifiche vengono salvate nel repository <code>${esc(GH.repo())}</code>.`
     : "Per rinominare, unire e abbinare percorsi da qui, collega una volta l'app al tuo repository GitHub.";
-  $("ghbtn").textContent = GH.token ? "Impostazioni GitHub" : "Collega GitHub";
+  $("ghbtn").textContent = GH.token ? "Impostazioni" : "Collega GitHub";
   const tutti = PERC.filter(p => stato.sport === "tutto" || p.sport === stato.sport);
   // corsa: contano solo i percorsi tuoi; quelli riconosciuti in automatico sono proposte
   const lista = tutti.filter(p => p.sport !== "corsa" || p.manuale);
@@ -856,7 +1079,7 @@ function renderPercorsi() {
     if (!idonei.some(p => p.id === stato.trendPerc)) stato.trendPerc = idonei.reduce((a, b) => ultimaVolta(b) > ultimaVolta(a) ? b : a).id;
     const p = idonei.find(x => x.id === stato.trendPerc), { best, ult, m } = statPerc(p);
     card.classList.remove("hidden");
-    $("trendsub").textContent = `${m.l} per uscita · ${m.minore ? "minuti al km, tempo in movimento" : "metri di dislivello all'ora, tempo in movimento"} · più in alto = meglio`;
+    $("trendsub").textContent = `${m.l} per uscita · ${m.sub.charAt(0).toLowerCase() + m.sub.slice(1)} · più in alto = meglio`;
     $("trendchips").innerHTML = idonei.map(x => `<button class="chip" data-trend="${x.id}" aria-pressed="${x.id === p.id}"><i class="dot" style="background:var(${SPORT[x.sport].color})"></i>${esc(x.nome)}</button>`).join("");
     $("trendchips").onclick = e => { const c = e.target.closest("[data-trend]"); if (!c) return; stato.trendPerc = Number(c.dataset.trend); renderPercorsi(); };
     const tile = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v == null ? "–" : `${m.parti(v)[0]}<span>${m.parti(v)[1]}</span>`}</div><div class="d">${d}</div></div>`;
@@ -914,8 +1137,8 @@ async function apriPercorso(pid) {
     <div class="legend" id="mapl" style="margin:8px 2px 0"></div>
     <section class="card"><h2>${m.l} per uscita</h2><p class="sub">${sottotitoloMetrica(m)}</p>
       <div class="chartbox"><canvas id="s1"></canvas></div></section>
-    <section class="card" id="s2card"><h2>FC media</h2>
-      <p class="sub">Sullo stesso percorso, a parità di ${m.breve} una FC più bassa indica una forma migliore</p>
+    <section class="card" id="s2card"><h2>${efficienzaDi(p.sport).l} per uscita</h2>
+      <p class="sub">${efficienzaDi(p.sport).sub}</p>
       <div class="chartbox"><canvas id="s2"></canvas></div></section>
     <section class="card"><h2>Ripetizioni</h2><p class="sub">Tocca una ripetizione per confrontarla con la migliore</p><div id="riplist"></div></section>
     <section class="card hidden" id="gapcard"><h2>Distacco dalla migliore</h2>
@@ -930,14 +1153,9 @@ async function apriPercorso(pid) {
   // grafico della metrica (passo o D+/h): lo stesso della schermata Percorsi
   graficoPercorso("s1", p);
 
-  // grafico FC
-  const v2 = rip.map(a => a.fc || null);
-  if (v2.filter(v => v != null).length >= 2) {
-    const f2 = v => `${nf0.format(v)} bpm`;
-    const o2 = baseOpts({ tooltipFmt: f2 }); o2.scales.y.beginAtZero = false;
-    disegna("s2", { type: "line", data: { labels: rip.map(a => fDataRip.format(a.d)), datasets: [{ label: "FC media",
-      data: v2, borderColor: col, backgroundColor: col, borderWidth: 2, pointRadius: 4, spanGaps: true, tension: .2 }] }, options: o2 });
-  } else $("s2card").classList.add("hidden");
+  // efficienza: passo (o salita) e battiti insieme
+  if (serieMisura(p, efficienzaDi(p.sport)).conM.length >= 2) graficoPercorso("s2", p, efficienzaDi(p.sport));
+  else $("s2card").classList.add("hidden");
 
   // elenco ripetizioni (dalla più recente)
   $("riplist").innerHTML = [...rip].reverse().map(a => {
@@ -947,6 +1165,7 @@ async function apriPercorso(pid) {
     if (a.dplus && p.sport !== "corsa") extra.push(`D+ ${nf0.format(a.dplus)} m`);
     if (tempoMov(a)) extra.push(hms(tempoMov(a)));
     if (a.fc) extra.push(`♥ ${nf0.format(a.fc)}`);
+    if (a.meteo?.t != null) extra.push(`<span class="nw">${meteoIcona(a.meteo.c)} ${nf0.format(a.meteo.t)}°</span>`);
     return `<div class="rip" data-rip="${a.id}"><span class="sm" data-mini="${a.id}"></span><div class="d">${fDataBreve.format(a.d)} ${String(a.d.getFullYear()).slice(2)} <span data-badge="${a.id}"></span></div>
       <div class="t">${v != null ? m.fmt(v) : "–"}</div>
       <div class="m">${extra.join(" · ")} · <button class="link" data-att="${a.id}">dettagli</button> · <button class="link" data-togli="${a.id}">togli</button></div>
@@ -1298,28 +1517,97 @@ async function nuovoPercorso() {
   if (ok) { const p = PERC_DI.get(scelte[0]); if (p) vai("perc", p.id); }
 }
 
-/* --- collegamento a GitHub --- */
-function apriGitHub() {
-  const collegato = !!GH.token;
-  apriSheet("Modifica percorsi", `
+/* --- impostazioni: aggiornamento, notifiche, collegamento a GitHub --- */
+const NOTIF_PATH = "docs/notifiche.enc";
+const b64u = u8 => b64daBytes(u8).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const supportoNotifiche = () => "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+// scrive nel repository un file JSON cifrato con la password della dashboard
+async function scriviFileCifrato(path, obj, messaggio) {
+  const contenuto = b64daBytes(new TextEncoder().encode(JSON.stringify(await cifraJson(obj, PW))));
+  const g = await ghApi(`contents/${path}?ref=main`);
+  if (g.status === 401) throw new Error("Token GitHub non valido o scaduto.");
+  const sha = g.ok ? (await g.json()).sha : null;
+  const r = await ghApi(`contents/${path}`, { method: "PUT", body: JSON.stringify({ message: messaggio, content: contenuto, branch: "main", ...(sha ? { sha } : {}) }) });
+  if (!r.ok) throw new Error(r.status === 401 ? "Token GitHub non valido o scaduto." : r.status === 403 || r.status === 404 ? "Il token non può scrivere nel repository (serve Contents: Read and write)." : `Errore GitHub ${r.status}.`);
+}
+async function statoNotifiche() {
+  if (!supportoNotifiche()) return { ok: false, testo: standalone() ? "Questo iPhone non supporta le notifiche delle web app: serve iOS 16.4 o successivo." : "Le notifiche funzionano solo aprendo l'app dall'icona sulla schermata Home." };
+  if (Notification.permission === "denied") return { ok: false, testo: "Notifiche bloccate: riattivale in Impostazioni iPhone → Notifiche → Allenamenti, poi torna qui." };
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg ? await reg.pushManager.getSubscription() : null;
+  return { ok: true, attive: !!sub && Notification.permission === "granted" && store.get("notifiche") === "1" };
+}
+async function attivaNotifiche() {
+  const perm = await Notification.requestPermission();               // deve partire subito dal tocco
+  if (perm !== "granted") throw new Error("Permesso non concesso: puoi riattivarlo in Impostazioni iPhone → Notifiche → Allenamenti.");
+  const reg = await navigator.serviceWorker.ready;
+  // chiave VAPID generata qui: la parte privata viaggia solo dentro il file cifrato, letto da GitHub Actions
+  const chiavi = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", chiavi.publicKey));
+  const priv = new Uint8Array(await crypto.subtle.exportKey("pkcs8", chiavi.privateKey));
+  const vecchia = await reg.pushManager.getSubscription();
+  if (vecchia) await vecchia.unsubscribe();
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pub });
+  await scriviFileCifrato(NOTIF_PATH, { v: 1, attive: true, vapid: b64u(priv), pubblica: b64u(pub), sottoscrizione: sub.toJSON(),
+    sito: new URL(".", location.href).href, creato: oraLocale() }, "Notifiche attivate");
+  store.set("notifiche", "1");
+}
+async function disattivaNotifiche() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg ? await reg.pushManager.getSubscription() : null;
+  if (sub) await sub.unsubscribe();
+  await scriviFileCifrato(NOTIF_PATH, { v: 1, attive: false }, "Notifiche disattivate");
+  store.del("notifiche");
+  navigator.clearAppBadge?.().catch(() => {});
+}
+async function provaNotifica() {
+  const r = await ghApi("actions/workflows/aggiorna.yml/dispatches", { method: "POST", body: JSON.stringify({ ref: "main", inputs: { prova_notifica: "true" } }) });
+  if (!r.ok) throw new Error(r.status === 403 || r.status === 404 ? "Il token non può avviare l'aggiornamento (serve Actions: Read and write)." : `Errore GitHub ${r.status}.`);
+}
+function aggiornaBadge() {
+  if (!("setAppBadge" in navigator) || !("Notification" in window) || Notification.permission !== "granted") return;
+  const n = daClassificare().length;
+  (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+}
+
+async function apriGitHub() {
+  const collegato = !!GH.token, gg = giorniAllaScadenza();
+  const st = STATO ? `Ultimo controllo: <b>${fOraBreve(STATO.controllato)}</b> · ${STATO.esito === "errore" ? `<span class="err">non riuscito</span>` : "riuscito ✓"}` : "Stato non ancora disponibile: arriva con il prossimo aggiornamento.";
+  const gen = apriSheet("Impostazioni", `
     <section class="card">
-      <h2>${collegato ? "Collegato a GitHub ✓" : "Collega GitHub"}</h2>
-      <p class="nota">Per salvare rinomine e abbinamenti in modo permanente, l'app scrive un file cifrato nel tuo repository
+      <h2>Aggiornamento automatico</h2>
+      <p class="nota">${st}${DATA?.aggiornato ? `<br>Dati cambiati l'ultima volta: ${fOraBreve(DATA.aggiornato)}` : ""}</p>
+      ${STATO?.esito === "errore" ? `<p class="err" style="margin-top:8px">${esc(STATO.messaggio || "")}</p>` : ""}
+      <ol class="nota" style="padding-left:18px;margin:10px 0 0;display:grid;gap:4px">
+        <li><b>Chiave Garmin scaduta:</b> su Garmin Connect (web) crea una nuova chiave Personal API, poi su GitHub → Settings → Secrets and variables → Actions → <code>GARMIN_PERSONAL_API_KEY</code> → Update.</li>
+        <li><b>Garmin non risponde:</b> di solito si risolve da solo a uno dei giri successivi (ogni 2 ore). Se dura più di un giorno, guarda l'errore su GitHub → Actions → «Aggiorna dashboard».</li>
+        <li><b>Nessun aggiornamento da molte ore:</b> su GitHub → Actions → «Aggiorna dashboard». Se compare «This scheduled workflow is disabled», tocca <b>Enable workflow</b>.</li>
+      </ol>
+      <div class="azioni"><button class="btn" id="impaggiorna">⇣ Aggiorna ora da Garmin</button></div>
+      <p class="sub" style="margin:14px 0 4px">Scadenza della chiave Garmin (la trovi dove l'hai creata): l'app ti avvisa 14 giorni prima</p>
+      <div class="campo-riga"><input id="garminscad" class="campo" type="date" value="${esc(store.get("garmin_scadenza") || "")}"><button class="pill" id="garminscadsalva">Salva</button></div>
+      ${gg != null ? `<p class="nota" style="margin-top:6px">La chiave ${quandoScade(gg)}</p>` : ""}
+    </section>
+    <section class="card" id="notifcard">
+      <h2>Notifiche</h2>
+      <p class="nota">Un avviso sul telefono quando c'è una nuova corsa da classificare, quando fai un record o se l'aggiornamento si ferma. Sull'icona compare il numero di uscite da classificare.</p>
+      <p class="nota" id="notifstato" style="margin-top:8px">Verifica…</p>
+      <div class="azioni" id="notifazioni"></div>
+    </section>
+    <section class="card">
+      <h2>${collegato ? "GitHub collegato ✓" : "Collega GitHub"}</h2>
+      <p class="nota">Per salvare percorsi e notifiche l'app scrive file cifrati nel tuo repository
         <code>${esc(GH.repo() || "?")}</code>. Serve un token GitHub limitato a quel repository. Il token resta solo su questo dispositivo.</p>
       ${ABB_ERR ? `<p class="err" style="margin-top:8px">${esc(ABB_ERR)}</p>` : ""}
-    </section>
-    <section class="card">
-      <h2>Come creare il token</h2>
-      <ol class="nota" style="padding-left:18px;margin:0;display:grid;gap:4px">
+      <ol class="nota" style="padding-left:18px;margin:10px 0 0;display:grid;gap:4px">
         <li>Apri <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com → Fine-grained token</a>.</li>
-        <li>Token name: <code>allenamenti-app</code>; Expiration: <b>1 anno</b> (o a tua scelta).</li>
+        <li>Token name: <code>allenamenti-app</code>; Expiration a tua scelta.</li>
         <li>Repository access: <b>Only select repositories</b> → <code>${esc((GH.repo() || "").split("/")[1] || "allenamenti")}</code>.</li>
-        <li>Permissions → <b>Contents: Read and write</b> e <b>Actions: Read and write</b> (serve per “⇣ Garmin”).</li>
+        <li>Permissions → <b>Contents: Read and write</b> e <b>Actions: Read and write</b>.</li>
         <li><b>Generate token</b>, copialo e incollalo qui sotto.</li>
       </ol>
-    </section>
-    <section class="card">
-      <h2>Token</h2>
+      <p class="sub" style="margin:12px 0 4px">Token</p>
       <input id="ghtoken" class="campo" type="password" placeholder="github_pat_…" autocomplete="off" value="">
       <p class="sub" style="margin:8px 0 4px">Repository (proprietario/nome)</p>
       <input id="ghrepo" class="campo" type="text" value="${esc(GH.repo())}" autocomplete="off">
@@ -1327,6 +1615,9 @@ function apriGitHub() {
         ${collegato ? `<button class="btn secondario" id="ghscollega">Scollega</button>` : ""}</div>
       <p class="err" id="gherr"></p>
     </section>`);
+  $("impaggiorna").onclick = () => { indietro(); aggiornaDaGarmin(); };
+  $("garminscadsalva").onclick = () => { const v = $("garminscad").value; v ? store.set("garmin_scadenza", v) : store.del("garmin_scadenza");
+    avviso(v ? "Scadenza salvata ✓" : "Scadenza tolta"); renderAvviso(); mostraTop(); };
   $("ghsalva").onclick = async () => {
     const tok = $("ghtoken").value.trim(), repo = $("ghrepo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "");
     if (!tok) { $("gherr").textContent = "Incolla il token."; return; }
@@ -1346,6 +1637,24 @@ function apriGitHub() {
     }
   };
   if ($("ghscollega")) $("ghscollega").onclick = () => { store.del("gh_token"); avviso("Token rimosso da questo dispositivo"); indietro(); render(); };
+
+  // stato delle notifiche (asincrono)
+  const sn = await statoNotifiche();
+  if (gen !== GEN || !$("notifstato")) return;
+  const az = $("notifazioni");
+  if (!sn.ok) { $("notifstato").textContent = sn.testo; az.innerHTML = ""; return; }
+  $("notifstato").innerHTML = sn.attive ? "Notifiche <b>attive</b> su questo telefono ✓" : "Notifiche non attive su questo telefono.";
+  az.innerHTML = sn.attive ? `<button class="pill" id="notifprova">Invia una notifica di prova</button><button class="pill" id="notifspegni">Disattiva</button>`
+    : `<button class="btn" id="notifaccendi">Attiva notifiche</button>`;
+  const esegui = async (fn, ok) => {
+    if (!GH.token) { $("notifstato").textContent = "Prima collega GitHub (qui sotto)."; return; }
+    az.querySelectorAll("button").forEach(b => b.disabled = true);
+    try { await fn(); avviso(ok); } catch (e) { avviso(e.message || "Operazione non riuscita.", true); }
+    if (PILA.at(-1)?.tipo === "gh") mostraTop();
+  };
+  if ($("notifaccendi")) $("notifaccendi").onclick = () => esegui(attivaNotifiche, "Notifiche attivate ✓");
+  if ($("notifspegni")) $("notifspegni").onclick = () => esegui(disattivaNotifiche, "Notifiche disattivate");
+  if ($("notifprova")) $("notifprova").onclick = () => esegui(provaNotifica, "Notifica di prova in arrivo tra 1–2 minuti");
 }
 
 /* ======================= Uscite da classificare (corsa) ======================= */
@@ -1357,6 +1666,7 @@ function renderInbox() {
   const n = daClassificare().length, b = $("inbox");
   b.classList.toggle("hidden", !n);
   b.textContent = `● ${n} ${n === 1 ? "uscita di corsa da classificare" : "uscite di corsa da classificare"} →`;
+  aggiornaBadge();
 }
 async function apriInbox() {
   const lista = daClassificare();
@@ -1613,7 +1923,35 @@ const giorniFa = n => { const d = new Date(); d.setDate(d.getDate() - n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const dataBreve = iso => { const [y, m, d] = iso.split("-").map(Number); return `${d} ${MESI[m - 1]}`; };
 
+function renderRecupero() {
+  const R = (DATA.recupero || []).filter(r => r.fc_riposo != null || r.bb_max != null || r.bb_risveglio != null || r.stress != null);
+  const card = $("rc-card"), box = $("rc-diag"), diag = DATA.recupero_diag;
+  box.classList.toggle("hidden", !diag);
+  if (diag) box.innerHTML = `<h2>Recupero · diagnostica</h2><p class="nota">Garmin ha risposto con campi che lo script non riconosce ancora.
+    Manda a Claude uno screenshot di questo elenco: contiene solo i <b>nomi</b> dei campi, nessun tuo dato.</p>
+    <p class="nota" style="margin-top:8px;word-break:break-all">${Object.entries(diag).map(([k, v]) => `<b>${esc(k)}</b>: <code>${(v || []).map(esc).join("</code> <code>")}</code>`).join("<br>")}</p>`;
+  if (!R.length) { card.classList.add("hidden"); charts.rc1?.destroy(); delete charts.rc1; return; }
+  card.classList.remove("hidden");
+  const u = R.at(-1), d30 = R.filter(r => r.data >= giorniFa(29));
+  const med = k => media(d30.map(r => r[k]).filter(v => v != null));
+  $("rc-sub").textContent = `Dati Garmin del ${fDataLunga.format(new Date(u.data + "T12:00"))}`;
+  const tile = (l, v, u_, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v == null ? "–" : nf0.format(v)}<span>${v == null ? "" : u_}</span></div><div class="d">${d}</div></div>`;
+  const bb = u.bb_risveglio ?? u.bb_max, mFc = med("fc_riposo"), mSt = med("stress");
+  $("rc-kpi").innerHTML =
+    tile("FC a riposo", u.fc_riposo, "bpm", mFc == null ? "" : `media 30 giorni: ${nf0.format(mFc)} bpm`) +
+    tile(u.bb_risveglio != null ? "Body Battery al risveglio" : "Body Battery massima", bb, "", u.bb_min != null ? `minima del giorno: ${nf0.format(u.bb_min)}` : "da 0 a 100") +
+    tile("Stress medio", u.stress, "", mSt == null ? "da 0 a 100" : `media 30 giorni: ${nf0.format(mSt)} · da 0 a 100`) +
+    (u.passi != null ? tile("Passi", u.passi, "", med("passi") == null ? "" : `media 30 giorni: ${nf0.format(med("passi"))}`) : "");
+  const fc = d30.filter(r => r.fc_riposo != null);
+  if (fc.length >= 2) {
+    const o = baseOpts({ tooltipFmt: v => `${nf0.format(v)} bpm` }); o.scales.y.beginAtZero = false;
+    disegna("rc1", { type: "line", data: { labels: fc.map(r => dataBreve(r.data)), datasets: [{ label: "FC a riposo", data: fc.map(r => r.fc_riposo),
+      borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 3, tension: .25 }] }, options: o });
+  } else { charts.rc1?.destroy(); delete charts.rc1; }
+}
+
 function renderSonno() {
+  renderRecupero();
   const S = DATA.sonno || [], diag = DATA.sonno_diag;
   const box = $("sn-diag");
   ["sn1card", "sn2card", "sn3card"].forEach(id => $(id).classList.remove("hidden"));
@@ -1695,6 +2033,7 @@ async function apri(pw, ricorda) {
   TRACCE = null; PW = pw;
   // gli abbinamenti arrivano da GitHub: se tardano si mostra subito il resto e si ridisegna quando arrivano
   const lettura = caricaAbbinamenti();
+  const letturaStato = caricaStato().then(() => renderAvviso());
   const inTempo = await Promise.race([lettura.then(() => true), new Promise(r => setTimeout(() => r(false), 6000))]);
   if (!inTempo) lettura.then(() => { ricalcolaPercorsi(); render(); ridisegnaScheda(); });
   ricalcolaPercorsi();
@@ -1705,12 +2044,13 @@ async function apri(pw, ricorda) {
   $("agg").textContent = DATA.aggiornato ? `Dati al ${new Date(DATA.aggiornato).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })}` : "";
   $("lock").classList.add("hidden"); $("app").classList.remove("hidden");
   render(); ridisegnaScheda();
+  letturaStato.catch(() => {});
 }
 const pwCorrente = () => store.get("pw") || (() => { try { return sessionStorage.getItem("pw"); } catch { return null; } })();
 
 $("lockform").addEventListener("submit", async e => {
   e.preventDefault(); $("lockerr").textContent = ""; $("unlockbtn").disabled = true; $("unlockbtn").textContent = "Sblocco…";
-  try { await apri($("pw").value, $("remember").checked); }
+  try { await apri($("pw").value, $("remember").checked); apriDaNotifica(); }
   catch (err) { $("lockerr").textContent = err.message; }
   finally { $("unlockbtn").disabled = false; $("unlockbtn").textContent = "Sblocca"; }
 });
@@ -1720,6 +2060,7 @@ $("tab-perc").onclick = () => { stato.vista = "perc"; render(); window.scrollTo(
 $("nuovoperc").onclick = () => nuovoPercorso();
 $("riordinabtn").onclick = () => vai("riordino", 0);
 $("inbox").onclick = () => vai("inbox", 0);
+$("avvisostato").onclick = () => { if (!OFFLINE) vai("gh", 0); };
 $("garminbtn").onclick = () => aggiornaDaGarmin();
 $("tab-sonno").onclick = () => { stato.vista = "sonno"; render(); window.scrollTo(0, 0); };
 $("sheetclose").onclick = () => { if (history.state?.scheda) history.back(); else indietro(); };
@@ -1741,9 +2082,18 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { 
 
 stato.sport = SPORT[store.get("sport")] ? store.get("sport") : "tutto";
 stato.periodo = PERIODI[store.get("periodo")] ? store.get("periodo") : "30g";
+// service worker: app utilizzabile senza rete, sempre l'ultima versione quando c'è rete, notifiche
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+function apriDaNotifica() {
+  const par = new URLSearchParams(location.search);
+  if (!par.has("apri")) return;
+  const dove = par.get("apri");
+  try { history.replaceState(null, "", location.pathname); } catch {}
+  if (dove === "inbox" && daClassificare().length) vai("inbox", 0);
+}
 (async () => {
   const pw = pwCorrente();
-  if (pw) { try { await apri(pw, !!store.get("pw")); } catch (e) { $("lockerr").textContent = e.message; if (e.pw) store.del("pw"); } }
+  if (pw) { try { await apri(pw, !!store.get("pw")); apriDaNotifica(); } catch (e) { $("lockerr").textContent = e.message; if (e.pw) store.del("pw"); } }
 })();
 </script>
 </body>
