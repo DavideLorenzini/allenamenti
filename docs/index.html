@@ -130,6 +130,10 @@ nav.tabbar button[aria-pressed=true] { border-color: var(--ink); color: var(--in
 .stats .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .stats .v .unita { display: block; font-size: 11px; font-weight: 500; color: var(--ink2); }
 .nw { white-space: nowrap; }
+.selperiodo { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; padding: 0 2px; }
+.selperiodo label { color: var(--ink2); font-size: 14px; }
+.selperiodo select { appearance: none; -webkit-appearance: none; background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23999' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 12px center;
+  color: var(--ink); border: 1px solid var(--ring); border-radius: 12px; padding: 9px 36px 9px 14px; font: inherit; font-size: 15px; font-weight: 600; }
 .ultima { cursor: pointer; }
 .ultima .testa { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--ink2); font-size: 13px; }
 .ultima .testa b { color: var(--ink); font-weight: 600; }
@@ -320,20 +324,23 @@ footer button { background: none; border: 0; color: var(--ink2); text-decoration
   </main>
 
   <main class="wrap hidden" id="view-sonno">
+    <section class="card" id="sn-notte"></section>
+    <div class="selperiodo"><label for="snper">Periodo</label>
+      <select id="snper"><option value="7">7 giorni</option><option value="30">30 giorni</option><option value="90">3 mesi</option>
+        <option value="180">6 mesi</option><option value="365">12 mesi</option></select></div>
+    <div class="kpis" id="sn-kpi" style="margin-top:10px"></div>
     <section class="card hidden" id="rc-card">
       <h2>Recupero</h2><p class="sub" id="rc-sub"></p>
       <div class="kpis" id="rc-kpi"></div>
-      <h3 class="minititolo">FC a riposo · ultimi 30 giorni</h3><p class="sub">Battiti al minuto · più in basso = più riposato</p>
-      <div class="chartbox"><canvas id="rc1"></canvas></div>
+      <h3 class="minititolo" id="rc1t">FC a riposo</h3><p class="sub">Battiti al minuto · più in basso = più riposato</p>
+      <div class="chartbox" id="rc1box"><canvas id="rc1"></canvas></div><p class="nota hidden" id="rc1nota"></p>
     </section>
     <section class="card hidden" id="rc-diag"></section>
-    <section class="card" id="sn-notte"></section>
-    <div class="kpis" id="sn-kpi" style="margin-top:12px"></div>
-    <section class="card" id="sn1card"><h2>Durata per notte</h2><p class="sub">Ultimi 30 giorni · fasi del sonno, ore</p>
+    <section class="card" id="sn1card"><h2>Durata del sonno</h2><p class="sub" id="sn1s"></p>
       <div class="legend" id="sn1l"></div><div class="chartbox"><canvas id="sn1"></canvas></div></section>
-    <section class="card" id="sn2card"><h2>Punteggio del sonno</h2><p class="sub">Ultimi 30 giorni · punteggio Garmin da 0 a 100</p>
+    <section class="card" id="sn2card"><h2>Punteggio del sonno</h2><p class="sub" id="sn2s"></p>
       <div class="chartbox"><canvas id="sn2"></canvas></div></section>
-    <section class="card" id="sn3card"><h2>HRV notturna</h2><p class="sub">Ultimi 30 giorni · millisecondi</p>
+    <section class="card" id="sn3card"><h2>HRV notturna</h2><p class="sub" id="sn3s"></p>
       <div class="legend" id="sn3l"></div><div class="chartbox"><canvas id="sn3"></canvas></div></section>
     <section class="card hidden" id="sn-diag"></section>
   </main>
@@ -416,6 +423,8 @@ let DATA = null, ACTS = [], stato = { sport: "tutto", periodo: "30g", vista: "pa
 let PERC = [], ACT_BY_ID = new Map(), PERC_DI = new Map(), TRACCE = null, PW = null, MAPPA = null;
 const esc = t => String(t ?? "").replace(/[<>&"]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
 const nomePulito = a => { const n = (a.nome || "").trim(); return (n.startsWith("#") ? n.slice(1).trim() : n) || SPORT[a.sport].label; };
+// nome da mostrare: quello del percorso a cui l'uscita è assegnata, altrimenti quello di Garmin
+const nomeVisibile = a => { const p = PERC_DI.get(a.id); return p && percorsoValido(p) ? p.nome : nomePulito(a); };
 const charts = {};
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const $ = id => document.getElementById(id);
@@ -683,7 +692,7 @@ function renderTrend() {
 function renderRecord() {
   const sp = stato.sport, a = filtrate(), el = $("rec");
   const top = (arr, f) => arr.reduce((b, x) => (f(x) != null && (b == null || f(x) > f(b))) ? x : b, null);
-  const riga = (t, x, v) => x ? `<div><span>${t}<small>${esc(x.nome || "")} · ${fDataLunga.format(x.d)}</small></span><b>${v}</b></div>` : "";
+  const riga = (t, x, v) => x ? `<div><span>${t}<small>${esc(x.id ? nomeVisibile(x) : x.nome || "")} · ${fDataLunga.format(x.d)}</small></span><b>${v}</b></div>` : "";
   let r = [];
   const lunga = top(a.filter(x => x.sport !== "sci"), x => x.dist), dmax = top(a, x => x.dplus), qmax = top(a, x => x.qmax);
   if (sp === "corsa") {
@@ -751,7 +760,9 @@ function confrontiUltima(a) {
       out.push(best?.id === a.id
         ? `${conM.length >= 3 ? "🏆 " : ""}<b>${esc(p.nome)}</b>: la migliore su ${conM.length} per ${m.breve} (${m.fmt(v)})`
         : `<b>${esc(p.nome)}</b>: ${pos}ª su ${conM.length} per ${m.breve} · ${m.diff(v - m.f(best))} dalla migliore (${m.fmt(m.f(best))})`);
-      if (prec) out.push(`Rispetto alla volta precedente (${fDataRip.format(prec.d)}): <b>${m.diff(v - m.f(prec))}</b> ${(m.minore ? v < m.f(prec) : v > m.f(prec)) ? "· meglio" : v === m.f(prec) ? "· uguale" : "· peggio"}`);
+      if (prec) { const d = v - m.f(prec);
+        out.push(Math.round(Math.abs(d)) === 0 ? `Rispetto alla volta precedente (${fDataRip.format(prec.d)}): <b>stesso ${m.breve}</b>`
+          : `Rispetto alla volta precedente (${fDataRip.format(prec.d)}): <b>${m.diff(d)}</b> · ${(m.minore ? d < 0 : d > 0) ? "meglio" : "peggio"}`); }
     }
   }
   const stesse = ACTS.filter(x => x.sport === a.sport);
@@ -792,7 +803,7 @@ function renderUltima() {
   const conf = confrontiUltima(a);
   const meteo = a.meteo?.t != null ? ` · <span class="nw">${meteoIcona(a.meteo.c)} ${nf0.format(a.meteo.t)} °C</span>` : "";
   card.innerHTML = `<div class="testa"><span><i class="dot" style="background:var(${SPORT[a.sport].color})"></i> Ultima uscita · ${SPORT[a.sport].label}</span><b>${quando(a.d)}</b></div>
-    <h2>${esc(nomePulito(a))}</h2>
+    <h2>${esc(nomeVisibile(a))}</h2>
     ${a.luogo || meteo ? `<p class="sub">${esc(a.luogo || "")}${a.luogo ? meteo : meteo.replace(" · ", "")}</p>` : ""}
     ${htmlStats(scelte.length ? scelte : st.slice(0, 6))}
     ${conf.length ? `<ul class="confronti">${conf.map(c => `<li>${c}</li>`).join("")}</ul>` : ""}
@@ -1056,7 +1067,7 @@ async function apriAttivita(id) {
       <div class="azioni"><button class="pill" data-azatt="aggiungi-a">Aggiungi a un percorso…</button>
       <button class="pill" data-azatt="crea">Crea nuovo percorso</button></div></section>`;
   }
-  const gen = apriSheet(nomePulito(a), `
+  const gen = apriSheet(nomeVisibile(a), `
     <p class="sub" style="margin:10px 2px 0">${SPORT[a.sport].label} · ${fDataLunga.format(a.d)}, ${a.inizio.slice(11, 16)}${a.luogo ? " · " + esc(a.luogo) : ""}</p>
     ${htmlStats(st)}
     ${a.meteo ? `<p class="meteo">${meteoTesto(a.meteo)} <span class="nw" style="color:var(--muted)">· Open-Meteo</span></p>` : ""}
@@ -2014,6 +2025,7 @@ async function apriRiordino() {
 const QUALITA = { EXCELLENT: "Ottimo", GOOD: "Buono", FAIR: "Discreto", POOR: "Scarso" };
 const FASI = [["profondo", "Profondo", "--s1"], ["leggero", "Leggero", "--s3"], ["rem", "REM", "--s7"], ["sveglio", "Sveglio", "--s2"]];
 const media = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+const cap = t => t ? t[0].toUpperCase() + t.slice(1) : t;
 // media di orari a cavallo della mezzanotte: minuti contati da mezzogiorno
 const minDaMezzogiorno = t => { const [h, m] = t.split(":").map(Number); const x = h * 60 + m; return x < 720 ? x + 1440 : x; };
 const orarioMedio = arr => { const v = media(arr.filter(Boolean).map(minDaMezzogiorno)); if (v == null) return null;
@@ -2022,8 +2034,21 @@ const giorniFa = n => { const d = new Date(); d.setDate(d.getDate() - n);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 const dataBreve = iso => { const [y, m, d] = iso.split("-").map(Number); return `${d} ${MESI[m - 1]}`; };
 
+const PSONNO = { 7: ["7 giorni", "ultimi 7 giorni"], 30: ["30 giorni", "ultimi 30 giorni"], 90: ["3 mesi", "ultimi 3 mesi"],
+                 180: ["6 mesi", "ultimi 6 mesi"], 365: ["12 mesi", "ultimi 12 mesi"] };
+const periodoSonno = () => { const n = Number(store.get("psonno")); return PSONNO[n] ? n : 7; };
+// oltre un mese i valori giornalieri diventano medie settimanali (da lunedì), per restare leggibili
+function perSettimana(righe, chiavi) {
+  const gruppi = new Map();
+  righe.forEach(r => { const [y, m, d] = r.data.split("-").map(Number), g = new Date(y, m - 1, d); g.setDate(g.getDate() - (g.getDay() + 6) % 7);
+    const k = `${g.getFullYear()}-${String(g.getMonth() + 1).padStart(2, "0")}-${String(g.getDate()).padStart(2, "0")}`;
+    (gruppi.get(k) || gruppi.set(k, []).get(k)).push(r); });
+  return [...gruppi].sort().map(([data, rr]) => ({ data, n: rr.length, ...Object.fromEntries(chiavi.map(c => [c, media(rr.map(r => r[c]).filter(v => v != null))])) }));
+}
+
 function renderRecupero() {
-  const R = (DATA.recupero || []).filter(r => r.fc_riposo != null || r.bb_max != null || r.bb_risveglio != null || r.stress != null);
+  const n = periodoSonno(), [, nomeP] = PSONNO[n];
+  const R = (DATA.recupero || []).filter(r => r.fc_riposo != null || r.bb_max != null || r.bb_risveglio != null || r.stress != null || r.passi != null);
   const card = $("rc-card"), box = $("rc-diag"), diag = DATA.recupero_diag;
   box.classList.toggle("hidden", !diag);
   if (diag) box.innerHTML = `<h2>Recupero · diagnostica</h2><p class="nota">Garmin ha risposto con campi che lo script non riconosce ancora.
@@ -2031,25 +2056,36 @@ function renderRecupero() {
     <p class="nota" style="margin-top:8px;word-break:break-all">${Object.entries(diag).map(([k, v]) => `<b>${esc(k)}</b>: <code>${(v || []).map(esc).join("</code> <code>")}</code>`).join("<br>")}</p>`;
   if (!R.length) { card.classList.add("hidden"); charts.rc1?.destroy(); delete charts.rc1; return; }
   card.classList.remove("hidden");
-  const u = R.at(-1), d30 = R.filter(r => r.data >= giorniFa(29));
-  const med = k => media(d30.map(r => r[k]).filter(v => v != null));
-  $("rc-sub").textContent = `Dati Garmin del ${fDataLunga.format(new Date(u.data + "T12:00"))}`;
+  const per = R.filter(r => r.data >= giorniFa(n - 1));
+  const ultimo = k => [...R].reverse().find(r => r[k] != null);
+  const med = k => media(per.map(r => r[k]).filter(v => v != null));
+  const quandoDato = r => r && r.data !== R.at(-1).data ? ` · dato del ${dataBreve(r.data)}` : "";
+  $("rc-sub").textContent = `Ultimi valori Garmin · medie: ${nomeP}`;
   const tile = (l, v, u_, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v == null ? "–" : nf0.format(v)}<span>${v == null ? "" : u_}</span></div><div class="d">${d}</div></div>`;
-  const bb = u.bb_risveglio ?? u.bb_max, mFc = med("fc_riposo"), mSt = med("stress");
+  const uFc = ultimo("fc_riposo"), uSt = ultimo("stress"), uPa = ultimo("passi"), uBb = [...R].reverse().find(r => r.bb_risveglio != null || r.bb_max != null);
+  const mFc = med("fc_riposo"), mSt = med("stress"), mPa = med("passi");
   $("rc-kpi").innerHTML =
-    tile("FC a riposo", u.fc_riposo, "bpm", mFc == null ? "" : `media 30 giorni: ${nf0.format(mFc)} bpm`) +
-    tile(u.bb_risveglio != null ? "Body Battery al risveglio" : "Body Battery massima", bb, "", u.bb_min != null ? `minima del giorno: ${nf0.format(u.bb_min)}` : "da 0 a 100") +
-    tile("Stress medio", u.stress, "", mSt == null ? "da 0 a 100" : `media 30 giorni: ${nf0.format(mSt)} · da 0 a 100`) +
-    (u.passi != null ? tile("Passi", u.passi, "", med("passi") == null ? "" : `media 30 giorni: ${nf0.format(med("passi"))}`) : "");
-  const fc = d30.filter(r => r.fc_riposo != null);
-  if (fc.length >= 2) {
+    tile("FC a riposo", uFc?.fc_riposo, "bpm", uFc ? `${mFc == null ? "" : `media ${nomeP}: ${nf0.format(mFc)} bpm`}${quandoDato(uFc)}` : "in arrivo con i prossimi aggiornamenti") +
+    (uBb ? tile(uBb.bb_risveglio != null ? "Body Battery al risveglio" : "Body Battery massima", uBb.bb_risveglio ?? uBb.bb_max, "",
+      `${uBb.bb_min != null ? `minima del giorno: ${nf0.format(uBb.bb_min)}` : "da 0 a 100"}${quandoDato(uBb)}`) : "") +
+    (uSt ? tile("Stress medio", uSt.stress, "", `${mSt == null ? "" : `media ${nomeP}: ${nf0.format(mSt)} · `}da 0 a 100${quandoDato(uSt)}`) : "") +
+    (uPa ? tile("Passi", uPa.passi, "", `${mPa == null ? "" : `media ${nomeP}: ${nf0.format(mPa)}`}${quandoDato(uPa)}`) : "");
+  $("rc1t").textContent = `FC a riposo · ${nomeP}`;
+  const fc = per.filter(r => r.fc_riposo != null), serie = n > 31 ? perSettimana(fc, ["fc_riposo"]) : fc;
+  const c = fc.length >= 2;
+  $("rc1box").classList.toggle("hidden", !c); $("rc1nota").classList.toggle("hidden", c);
+  $("rc1nota").textContent = "Il grafico compare quando ci sono almeno due giorni di FC a riposo: Garmin la fornisce giorno per giorno e lo storico si completa nei prossimi aggiornamenti.";
+  if (c) {
     const o = baseOpts({ tooltipFmt: v => `${nf0.format(v)} bpm` }); o.scales.y.beginAtZero = false;
-    disegna("rc1", { type: "line", data: { labels: fc.map(r => dataBreve(r.data)), datasets: [{ label: "FC a riposo", data: fc.map(r => r.fc_riposo),
-      borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 3, tension: .25 }] }, options: o });
+    if (n > 31) o.plugins.tooltip.callbacks.title = x => `Settimana dal ${dataBreve(serie[x[0].dataIndex].data)}`;
+    disegna("rc1", { type: "line", data: { labels: serie.map(r => dataBreve(r.data)), datasets: [{ label: n > 31 ? "FC a riposo, media settimanale" : "FC a riposo", data: serie.map(r => r.fc_riposo),
+      borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: serie.length > 40 ? 0 : 3, pointHoverRadius: 4, tension: .25 }] }, options: o });
   } else { charts.rc1?.destroy(); delete charts.rc1; }
 }
 
 function renderSonno() {
+  const n = periodoSonno(), [nomeP, nomeLungo] = PSONNO[n], nomePrec = `${nomeP} precedenti`;
+  $("snper").value = String(n);
   renderRecupero();
   const S = DATA.sonno || [], diag = DATA.sonno_diag;
   const box = $("sn-diag");
@@ -2076,46 +2112,53 @@ function renderSonno() {
       ${totFasi ? `<div class="fasi">${fasi.map(([k, , c]) => `<i style="width:${(u[k] / totFasi * 100).toFixed(1)}%;background:var(${c})" title="${k}"></i>`).join("")}</div>
       <div class="fasileg">${fasi.map(([k, l, c]) => `<span><i class="dot" style="background:var(${c})"></i>${l}<b>${hm(u[k])} · ${nf0.format(u[k] / totFasi * 100)}%</b></span>`).join("")}</div>` : ""}</div>`;
 
-    // 7 giorni e 30 giorni
-    const s7 = S.filter(x => x.data >= giorniFa(6)), s30 = S.filter(x => x.data >= giorniFa(29));
+    // periodo scelto con la tendina, confrontato con il periodo precedente di uguale durata
+    const s7 = S.filter(x => x.data >= giorniFa(n - 1)), s30 = S.filter(x => x.data >= giorniFa(2 * n - 1) && x.data < giorniFa(n - 1));
     const tile = (l, v7, v30, nota) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v7 ?? "–"}</div>
-      <div class="d">ultimi 30 giorni: ${v30 ?? "–"}</div>${nota ? `<div class="d">${nota}</div>` : ""}</div>`;
+      <div class="d">${nomePrec}: ${v30 ?? "–"}</div>${nota ? `<div class="d">${nota}</div>` : ""}</div>`;
     const durMedia = a => { const m = media(a.map(x => x.totale)); return m == null ? null : hm(m); };
     const scoreMedio = a => { const m = media(a.map(x => x.punteggio).filter(v => v != null)); return m == null ? null : nf0.format(m); };
     const sotto7 = a => a.filter(x => x.totale < 7 * 3600).length;
     $("sn-kpi").innerHTML =
-      tile("Sonno medio · 7 giorni", durMedia(s7), durMedia(s30), `${s7.length} notti registrate su 7`) +
-      tile("Punteggio medio · 7 giorni", scoreMedio(s7), scoreMedio(s30)) +
-      tile("A letto · media 7 giorni", orarioMedio(s7.map(x => x.inizio)), orarioMedio(s30.map(x => x.inizio))) +
-      tile("Sveglia · media 7 giorni", orarioMedio(s7.map(x => x.fine)), orarioMedio(s30.map(x => x.fine))) +
-      tile("Notti sotto le 7 ore · 7 giorni", `${sotto7(s7)} su ${s7.length}`, `${sotto7(s30)} su ${s30.length}`);
+      tile(`Sonno medio · ${nomeP}`, durMedia(s7), durMedia(s30), `${s7.length} notti registrate su ${n}`) +
+      tile(`Punteggio medio · ${nomeP}`, scoreMedio(s7), scoreMedio(s30)) +
+      tile(`A letto · media ${nomeP}`, orarioMedio(s7.map(x => x.inizio)), orarioMedio(s30.map(x => x.inizio))) +
+      tile(`Sveglia · media ${nomeP}`, orarioMedio(s7.map(x => x.fine)), orarioMedio(s30.map(x => x.fine))) +
+      tile(`Notti sotto le 7 ore · ${nomeP}`, `${sotto7(s7)} su ${s7.length}`, `${sotto7(s30)} su ${s30.length}`);
 
-    // durata per notte, 30 giorni
-    const conFasi = s30.some(x => x.profondo != null || x.leggero != null || x.rem != null);
-    const labels = s30.map(x => dataBreve(x.data));
+    // durata: per notte fino a un mese, poi media per settimana
+    const sett = n > 31, chiavi = ["totale", "punteggio", ...FASI.slice(0, 3).map(([k]) => k)];
+    const righe = sett ? perSettimana(s7, chiavi) : s7;
+    $("sn1s").textContent = `${cap(nomeLungo)} · ${sett ? "media per notte, settimana per settimana" : "per notte"} · fasi del sonno, ore`;
+    $("sn2s").textContent = `${cap(nomeLungo)} · ${sett ? "media settimanale" : "per notte"} · punteggio Garmin da 0 a 100`;
+    const conFasi = righe.some(x => x.profondo != null || x.leggero != null || x.rem != null);
+    const labels = righe.map(x => dataBreve(x.data));
     const ds = conFasi
-      ? FASI.slice(0, 3).map(([k, l, c]) => ({ label: l, data: s30.map(x => (x[k] || 0) / 3600), ...barStyle(css(c)) }))
-      : [{ label: "Sonno", data: s30.map(x => x.totale / 3600), ...barStyle(css("--s1")) }];
+      ? FASI.slice(0, 3).map(([k, l, c]) => ({ label: l, data: righe.map(x => (x[k] || 0) / 3600), ...barStyle(css(c)) }))
+      : [{ label: "Sonno", data: righe.map(x => x.totale / 3600), ...barStyle(css("--s1")) }];
     legenda("sn1l", ds.map(d => [d.label, d.backgroundColor]));
     const o1 = baseOpts({ stacked: true, tooltipFmt: (v, tick) => tick ? `${nf0.format(v)} h` : hm(v * 3600) });
-    o1.plugins.tooltip.callbacks.footer = c => `Totale: ${hm(s30[c[0].dataIndex].totale)}`;
+    o1.plugins.tooltip.callbacks.footer = c => `${sett ? "Media per notte" : "Totale"}: ${hm(righe[c[0].dataIndex].totale)}`;
+    if (sett) o1.plugins.tooltip.callbacks.title = c => `Settimana dal ${dataBreve(righe[c[0].dataIndex].data)} · ${righe[c[0].dataIndex].n} notti`;
     disegna("sn1", { type: "bar", data: { labels, datasets: ds }, options: o1 });
 
     // punteggio
-    if (s30.some(x => x.punteggio != null)) {
+    if (righe.some(x => x.punteggio != null)) {
       const o2 = baseOpts({ tooltipFmt: v => nf0.format(v) }); o2.scales.y.beginAtZero = false;
-      disegna("sn2", { type: "line", data: { labels, datasets: [{ label: "Punteggio", data: s30.map(x => x.punteggio),
-        borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 3, spanGaps: true, tension: .25 }] }, options: o2 });
+      if (sett) o2.plugins.tooltip.callbacks.title = c => `Settimana dal ${dataBreve(righe[c[0].dataIndex].data)}`;
+      disegna("sn2", { type: "line", data: { labels, datasets: [{ label: "Punteggio", data: righe.map(x => x.punteggio),
+        borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: righe.length > 40 ? 0 : 3, pointHoverRadius: 4, spanGaps: true, tension: .25 }] }, options: o2 });
     } else $("sn2card").classList.add("hidden");
   }
 
   // HRV
-  const h = (DATA.hrv || []).filter(x => x.data >= giorniFa(29));
+  $("sn3s").textContent = `${cap(nomeLungo)} · millisecondi`;
+  const h = (DATA.hrv || []).filter(x => x.data >= giorniFa(n - 1));
   if (h.some(x => x.notte)) {
     legenda("sn3l", [["Notte", css("--s1")], ["Media 7 giorni", css("--s2")]]);
     const o3 = baseOpts({ tooltipFmt: v => `${nf0.format(v)} ms` }); o3.scales.y.beginAtZero = false;
     disegna("sn3", { type: "line", data: { labels: h.map(x => dataBreve(x.data)), datasets: [
-      { label: "Notte", data: h.map(x => x.notte), borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
+      { label: "Notte", data: h.map(x => x.notte), borderColor: css("--s1"), backgroundColor: css("--s1"), borderWidth: h.length > 60 ? 1.5 : 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
       { label: "Media 7 giorni", data: h.map(x => x.sett), borderColor: css("--s2"), backgroundColor: css("--s2"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, spanGaps: true, tension: .25 },
     ] }, options: o3 });
   } else $("sn3card").classList.add("hidden");
@@ -2172,6 +2215,7 @@ document.addEventListener("click", e => {
   if (att) { e.stopPropagation(); vai("att", Number(att.dataset.att)); }
   else if (perc) vai("perc", Number(perc.dataset.perc));
 });
+$("snper").addEventListener("change", e => { store.set("psonno", e.target.value); renderSonno(); });
 $("ultimacard").addEventListener("keydown", e => { if (e.key === "Enter") vai("att", Number($("ultimacard").dataset.att)); });
 $("logout").onclick = () => { store.del("pw"); try { sessionStorage.removeItem("pw"); } catch {} location.reload(); };
 function alertNoBlock(msg) { $("agg").textContent = msg; }
