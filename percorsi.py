@@ -19,6 +19,8 @@ from datetime import date, timedelta
 
 import fitdecode
 
+import analisi as an
+
 SEMICERCHI = 180 / 2**31
 PUNTI_FIRMA = 40
 TOLL_PARTENZA_M = 300
@@ -101,9 +103,32 @@ def _fit_bytes(contenuto: bytes) -> bytes | None:
 
 def estrai_traccia(contenuto: bytes) -> list[list] | None:
     """
-    Restituisce i punti [lat, lon, quota_m, distanza_m, secondi_da_inizio, fc]
+    Restituisce i punti [lat, lon, quota_m, distanza_m, secondi_da_inizio, fc] semplificati
     oppure None se il file non ha posizioni GPS (es. tapis roulant).
     """
+    punti = punti_completi(contenuto)
+    return semplifica(arrotonda(punti)) if punti else None
+
+
+def estrai(contenuto: bytes, sport: str) -> tuple[list[list] | None, dict | None]:
+    """Traccia semplificata per mappe e confronti + analisi sulla traccia completa (parziali, VAM, migliori tempi)."""
+    punti = punti_completi(contenuto)
+    if not punti:
+        return None, None
+    try:
+        analisi = an.analizza(punti, sport)
+    except Exception:                                         # l'analisi non deve mai bloccare la traccia
+        analisi = None
+    return semplifica(arrotonda(punti)), analisi
+
+
+def arrotonda(punti: list[list]) -> list[list]:
+    return [[round(p[0], 5), round(p[1], 5), round(p[2]) if isinstance(p[2], (int, float)) else None,
+             round(p[3]), round(p[4]), int(p[5]) if isinstance(p[5], (int, float)) else None] for p in punti]
+
+
+def punti_completi(contenuto: bytes) -> list[list] | None:
+    """Tutti i punti del file, senza arrotondamenti: [lat, lon, quota, distanza, secondi, fc]."""
     dati = _fit_bytes(contenuto)
     if not dati:
         return None
@@ -132,11 +157,9 @@ def estrai_traccia(contenuto: bytes) -> list[list] | None:
         if i:
             cum += haversine(grezzi[i - 1][0], grezzi[i - 1][1], lat, lon)
         d = dist if isinstance(dist, (int, float)) else cum
-        punti.append([round(lat, 5), round(lon, 5),
-                      round(alt) if isinstance(alt, (int, float)) else None,
-                      round(d), round((ts - t0).total_seconds()),
-                      int(fc) if isinstance(fc, (int, float)) else None])
-    return semplifica(punti)
+        punti.append([lat, lon, float(alt) if isinstance(alt, (int, float)) else None,
+                      float(d), (ts - t0).total_seconds(), fc if isinstance(fc, (int, float)) else None])
+    return punti
 
 
 # --------------------------------------------------------------------------- #
