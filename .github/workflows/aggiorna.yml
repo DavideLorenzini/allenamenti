@@ -9,6 +9,10 @@ on:
         description: "Riscarica tutto lo storico"
         type: boolean
         default: false
+      prova_notifica:
+        description: "Invia una notifica di prova al telefono"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -39,13 +43,16 @@ jobs:
         env:
           GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
           DASHBOARD_PASSWORD: ${{ secrets.DASHBOARD_PASSWORD }}
+          PROVA_NOTIFICA: ${{ inputs.prova_notifica }}
         run: python sync.py ${{ inputs.completo && '--completo' || '' }}
 
       - name: Pubblica se ci sono novità
         # I dati cifrati sostituiscono sempre l'ultimo commit di aggiornamento (amend):
         # lo storico del repository non cresce a ogni giro.
+        # Gira anche se lo scarico è fallito, per pubblicare l'esito (docs/stato.json) che l'app mostra.
+        if: always()
         run: |
-          git add docs/data.enc docs/tracce.enc 2>/dev/null || git add docs/data.enc
+          git add docs/data.enc docs/tracce.enc docs/stato.json 2>/dev/null || git add docs/stato.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "Nessuna modifica."; exit 0
           fi
